@@ -22,7 +22,7 @@ namespace osu.Framework.Configuration
         /// <summary>
         /// The backing file used to store the config. Null means no persistent storage.
         /// </summary>
-        protected virtual string Filename => @"game.ini";
+        protected virtual string Filename => @"Ez2game.ini";
 
         private readonly Storage storage;
 

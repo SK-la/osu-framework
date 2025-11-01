@@ -159,8 +159,8 @@ namespace osu.Framework.Graphics.Rendering
             statExpensiveOperationsQueued = GlobalStatistics.Get<int>(GetType().Name, "Expensive operation queue length");
             vboInUse = GlobalStatistics.Get<int>(GetType().Name, "VBOs in use");
 
-            whitePixel = new Lazy<TextureWhitePixel>(() =>
-                new TextureAtlas(this, TextureAtlas.WHITE_PIXEL_SIZE + TextureAtlas.PADDING, TextureAtlas.WHITE_PIXEL_SIZE + TextureAtlas.PADDING, true).WhitePixel);
+            whitePixel = new Lazy<TextureWhitePixel>(() => new TextureAtlas(this, TextureAtlas.WHITE_PIXEL_SIZE + TextureAtlas.PADDING, TextureAtlas.WHITE_PIXEL_SIZE + TextureAtlas.PADDING, true)
+                                                        .WhitePixel);
         }
 
         void IRenderer.Initialise(IGraphicsSurface graphicsSurface)
@@ -328,6 +328,12 @@ namespace osu.Framework.Graphics.Rendering
         protected internal abstract Image<Rgba32> TakeScreenshot();
 
         /// <summary>
+        /// Captures the current screen content to a framebuffer for post-processing effects.
+        /// </summary>
+        /// <param name="frameBuffer">The framebuffer to capture to.</param>
+        public abstract void CaptureScreenToFrameBuffer(IFrameBuffer frameBuffer);
+
+        /// <summary>
         /// Returns an image containing the content of a framebuffer.
         /// </summary>
         protected internal virtual Image<Rgba32>? ExtractFrameBufferData(IFrameBuffer frameBuffer) => null;
@@ -364,7 +370,7 @@ namespace osu.Framework.Graphics.Rendering
         /// </summary>
         protected internal abstract void ClearCurrent();
 
-        #region Clear
+#region Clear
 
         public void Clear(ClearInfo clearInfo)
         {
@@ -385,9 +391,9 @@ namespace osu.Framework.Graphics.Rendering
         /// <param name="clearInfo">The clear parameters.</param>
         protected abstract void ClearImplementation(ClearInfo clearInfo);
 
-        #endregion
+#endregion
 
-        #region Blending
+#region Blending
 
         public void SetBlend(BlendingParameters blendingParameters)
         {
@@ -423,9 +429,9 @@ namespace osu.Framework.Graphics.Rendering
         /// <param name="blendingMask">The blending mask.</param>
         protected abstract void SetBlendMaskImplementation(BlendingMask blendingMask);
 
-        #endregion
+#endregion
 
-        #region Viewport
+#region Viewport
 
         public void PushViewport(RectangleI viewport)
         {
@@ -474,9 +480,9 @@ namespace osu.Framework.Graphics.Rendering
         /// <param name="viewport">The viewport to use.</param>
         protected abstract void SetViewportImplementation(RectangleI viewport);
 
-        #endregion
+#endregion
 
-        #region Scissor
+#region Scissor
 
         public void PushScissor(RectangleI scissor)
         {
@@ -581,9 +587,9 @@ namespace osu.Framework.Graphics.Rendering
         /// <param name="enabled">Whether scissor should be enabled.</param>
         protected abstract void SetScissorStateImplementation(bool enabled);
 
-        #endregion
+#endregion
 
-        #region Projection Matrix
+#region Projection Matrix
 
         public void PushProjectionMatrix(Matrix4 matrix)
         {
@@ -610,9 +616,9 @@ namespace osu.Framework.Graphics.Rendering
             ProjectionMatrix = matrix;
         }
 
-        #endregion
+#endregion
 
-        #region Masking
+#region Masking
 
         public void PushMaskingInfo(in MaskingInfo maskingInfo, bool overwritePreviousScissor = false)
         {
@@ -662,9 +668,9 @@ namespace osu.Framework.Graphics.Rendering
             globalUniformsChanged = true;
         }
 
-        #endregion
+#endregion
 
-        #region Depth & Stencil
+#region Depth & Stencil
 
         public void PushDepthInfo(DepthInfo depthInfo)
         {
@@ -728,9 +734,9 @@ namespace osu.Framework.Graphics.Rendering
         /// <param name="stencilInfo">The stencil parameters to use.</param>
         protected abstract void SetStencilInfoImplementation(StencilInfo stencilInfo);
 
-        #endregion
+#endregion
 
-        #region Batches
+#region Batches
 
         internal IVertexBatch<TexturedVertex2D> DefaultQuadBatch => quadBatches.Peek();
 
@@ -788,9 +794,9 @@ namespace osu.Framework.Graphics.Rendering
             vertexBuffersInUse.RemoveAll(b => !b.InUse);
         }
 
-        #endregion
+#endregion
 
-        #region Textures
+#region Textures
 
         public bool BindTexture(Texture texture, int unit, WrapMode? wrapModeS, WrapMode? wrapModeT)
         {
@@ -900,9 +906,9 @@ namespace osu.Framework.Graphics.Rendering
         /// <returns>Whether the texture was set successfully.</returns>
         protected abstract bool SetTextureImplementation(INativeTexture? texture, int unit);
 
-        #endregion
+#endregion
 
-        #region Framebuffers
+#region Framebuffers
 
         public void BindFrameBuffer(IFrameBuffer frameBuffer)
         {
@@ -953,7 +959,7 @@ namespace osu.Framework.Graphics.Rendering
 
         protected abstract void DeleteFrameBufferImplementation(IFrameBuffer frameBuffer);
 
-        #endregion
+#endregion
 
         public void DrawVertices(PrimitiveTopology topology, int vertexStart, int verticesCount)
         {
@@ -980,35 +986,35 @@ namespace osu.Framework.Graphics.Rendering
                         currentMaskingInfo.MaskingRect.Bottom),
                     BorderThickness = currentMaskingInfo.BorderThickness / currentMaskingInfo.BlendRange,
                     BorderColour = currentMaskingInfo.BorderThickness > 0
-                        ? new Matrix4(
-                            // TopLeft
-                            currentMaskingInfo.BorderColour.TopLeft.SRGB.R,
-                            currentMaskingInfo.BorderColour.TopLeft.SRGB.G,
-                            currentMaskingInfo.BorderColour.TopLeft.SRGB.B,
-                            currentMaskingInfo.BorderColour.TopLeft.SRGB.A,
-                            // BottomLeft
-                            currentMaskingInfo.BorderColour.BottomLeft.SRGB.R,
-                            currentMaskingInfo.BorderColour.BottomLeft.SRGB.G,
-                            currentMaskingInfo.BorderColour.BottomLeft.SRGB.B,
-                            currentMaskingInfo.BorderColour.BottomLeft.SRGB.A,
-                            // TopRight
-                            currentMaskingInfo.BorderColour.TopRight.SRGB.R,
-                            currentMaskingInfo.BorderColour.TopRight.SRGB.G,
-                            currentMaskingInfo.BorderColour.TopRight.SRGB.B,
-                            currentMaskingInfo.BorderColour.TopRight.SRGB.A,
-                            // BottomRight
-                            currentMaskingInfo.BorderColour.BottomRight.SRGB.R,
-                            currentMaskingInfo.BorderColour.BottomRight.SRGB.G,
-                            currentMaskingInfo.BorderColour.BottomRight.SRGB.B,
-                            currentMaskingInfo.BorderColour.BottomRight.SRGB.A)
-                        : globalUniformBuffer.Data.BorderColour,
+                                       ? new Matrix4(
+                                           // TopLeft
+                                           currentMaskingInfo.BorderColour.TopLeft.SRGB.R,
+                                           currentMaskingInfo.BorderColour.TopLeft.SRGB.G,
+                                           currentMaskingInfo.BorderColour.TopLeft.SRGB.B,
+                                           currentMaskingInfo.BorderColour.TopLeft.SRGB.A,
+                                           // BottomLeft
+                                           currentMaskingInfo.BorderColour.BottomLeft.SRGB.R,
+                                           currentMaskingInfo.BorderColour.BottomLeft.SRGB.G,
+                                           currentMaskingInfo.BorderColour.BottomLeft.SRGB.B,
+                                           currentMaskingInfo.BorderColour.BottomLeft.SRGB.A,
+                                           // TopRight
+                                           currentMaskingInfo.BorderColour.TopRight.SRGB.R,
+                                           currentMaskingInfo.BorderColour.TopRight.SRGB.G,
+                                           currentMaskingInfo.BorderColour.TopRight.SRGB.B,
+                                           currentMaskingInfo.BorderColour.TopRight.SRGB.A,
+                                           // BottomRight
+                                           currentMaskingInfo.BorderColour.BottomRight.SRGB.R,
+                                           currentMaskingInfo.BorderColour.BottomRight.SRGB.G,
+                                           currentMaskingInfo.BorderColour.BottomRight.SRGB.B,
+                                           currentMaskingInfo.BorderColour.BottomRight.SRGB.A)
+                                       : globalUniformBuffer.Data.BorderColour,
                     MaskingBlendRange = currentMaskingInfo.BlendRange,
                     AlphaExponent = currentMaskingInfo.AlphaExponent,
                     EdgeOffset = currentMaskingInfo.EdgeOffset,
                     DiscardInner = currentMaskingInfo.Hollow,
                     InnerCornerRadius = currentMaskingInfo.Hollow
-                        ? currentMaskingInfo.HollowCornerRadius
-                        : globalUniformBuffer.Data.InnerCornerRadius,
+                                            ? currentMaskingInfo.HollowCornerRadius
+                                            : globalUniformBuffer.Data.InnerCornerRadius,
                     WrapModeS = (int)CurrentWrapModeS,
                     WrapModeT = (int)CurrentWrapModeT
                 };
@@ -1026,7 +1032,7 @@ namespace osu.Framework.Graphics.Rendering
 
         public abstract void DrawVerticesImplementation(PrimitiveTopology topology, int vertexStart, int verticesCount);
 
-        #region Shaders
+#region Shaders
 
         public void BindShader(IShader shader)
         {
@@ -1101,9 +1107,9 @@ namespace osu.Framework.Graphics.Rendering
 
         protected abstract void SetUniformBufferImplementation(string blockName, IUniformBuffer buffer);
 
-        #endregion
+#endregion
 
-        #region Factory
+#region Factory
 
         public abstract IFrameBuffer CreateFrameBuffer(RenderBufferFormat[]? renderBufferFormats = null, TextureFilteringMode filteringMode = TextureFilteringMode.Linear);
 
@@ -1157,7 +1163,10 @@ namespace osu.Framework.Graphics.Rendering
         /// <param name="filteringMode">The filtering mode.</param>
         /// <param name="initialisationColour">The colour to initialise texture levels with (in the case of sub region initial uploads). If null, no initialisation is provided out-of-the-box.</param>
         /// <returns>The <see cref="INativeTexture"/>.</returns>
-        protected abstract INativeTexture CreateNativeTexture(int width, int height, bool manualMipmaps = false, TextureFilteringMode filteringMode = TextureFilteringMode.Linear,
+        protected abstract INativeTexture CreateNativeTexture(int width,
+                                                              int height,
+                                                              bool manualMipmaps = false,
+                                                              TextureFilteringMode filteringMode = TextureFilteringMode.Linear,
                                                               Color4? initialisationColour = null);
 
         /// <summary>
@@ -1168,8 +1177,8 @@ namespace osu.Framework.Graphics.Rendering
         /// <returns>The video <see cref="INativeTexture"/>.</returns>
         protected abstract INativeTexture CreateNativeVideoTexture(int width, int height);
 
-        public Texture CreateTexture(int width, int height, bool manualMipmaps, TextureFilteringMode filteringMode, WrapMode wrapModeS, WrapMode wrapModeT, Color4? initialisationColour)
-            => CreateTexture(CreateNativeTexture(width, height, manualMipmaps, filteringMode, initialisationColour), wrapModeS, wrapModeT);
+        public Texture CreateTexture(int width, int height, bool manualMipmaps, TextureFilteringMode filteringMode, WrapMode wrapModeS, WrapMode wrapModeT, Color4? initialisationColour) =>
+            CreateTexture(CreateNativeTexture(width, height, manualMipmaps, filteringMode, initialisationColour), wrapModeS, wrapModeT);
 
         public Texture CreateVideoTexture(int width, int height) => CreateTexture(CreateNativeVideoTexture(width, height));
 
@@ -1180,8 +1189,8 @@ namespace osu.Framework.Graphics.Rendering
         /// <param name="wrapModeS">The horizontal wrap mode of the texture.</param>
         /// <param name="wrapModeT">The vertical wrap mode of the texture.</param>
         /// <returns>The <see cref="Texture"/>.</returns>
-        internal Texture CreateTexture(INativeTexture nativeTexture, WrapMode wrapModeS = WrapMode.None, WrapMode wrapModeT = WrapMode.None)
-            => registerTexture(new Texture(nativeTexture, wrapModeS, wrapModeT));
+        internal Texture CreateTexture(INativeTexture nativeTexture, WrapMode wrapModeS = WrapMode.None, WrapMode wrapModeT = WrapMode.None) =>
+            registerTexture(new Texture(nativeTexture, wrapModeS, wrapModeT));
 
         private Texture registerTexture(Texture texture)
         {
@@ -1190,9 +1199,9 @@ namespace osu.Framework.Graphics.Rendering
             return texture;
         }
 
-        #endregion
+#endregion
 
-        #region IRenderer explicit implementation
+#region IRenderer explicit implementation
 
         bool IRenderer.VerticalSync
         {
@@ -1285,9 +1294,9 @@ namespace osu.Framework.Graphics.Rendering
                 checkValidType(field);
 
                 if (field.FieldType == typeof(UniformMatrix3)
-                    || field.FieldType == typeof(UniformMatrix4)
-                    || field.FieldType == typeof(UniformVector3)
-                    || field.FieldType == typeof(UniformVector4))
+                 || field.FieldType == typeof(UniformMatrix4)
+                 || field.FieldType == typeof(UniformVector3)
+                 || field.FieldType == typeof(UniformVector4))
                 {
                     checkAlignment(field, offset, 16);
                 }
@@ -1308,16 +1317,16 @@ namespace osu.Framework.Graphics.Rendering
             static void checkValidType(FieldInfo field)
             {
                 if (field.FieldType == typeof(UniformBool)
-                    || field.FieldType == typeof(UniformFloat)
-                    || field.FieldType == typeof(UniformInt)
-                    || field.FieldType == typeof(UniformMatrix3)
-                    || field.FieldType == typeof(UniformMatrix4)
-                    || field.FieldType == typeof(UniformPadding4)
-                    || field.FieldType == typeof(UniformPadding8)
-                    || field.FieldType == typeof(UniformPadding12)
-                    || field.FieldType == typeof(UniformVector2)
-                    || field.FieldType == typeof(UniformVector4)
-                    || field.FieldType == typeof(UniformVector4))
+                 || field.FieldType == typeof(UniformFloat)
+                 || field.FieldType == typeof(UniformInt)
+                 || field.FieldType == typeof(UniformMatrix3)
+                 || field.FieldType == typeof(UniformMatrix4)
+                 || field.FieldType == typeof(UniformPadding4)
+                 || field.FieldType == typeof(UniformPadding8)
+                 || field.FieldType == typeof(UniformPadding12)
+                 || field.FieldType == typeof(UniformVector2)
+                 || field.FieldType == typeof(UniformVector4)
+                 || field.FieldType == typeof(UniformVector4))
                 {
                     return;
                 }
@@ -1341,18 +1350,18 @@ namespace osu.Framework.Graphics.Rendering
                     return null;
 
                 return paddingRequired switch
-                {
-                    4 => typeof(UniformPadding4),
-                    8 => typeof(UniformPadding8),
-                    12 => typeof(UniformPadding12),
-                    _ => null
-                };
+                       {
+                           4  => typeof(UniformPadding4),
+                           8  => typeof(UniformPadding8),
+                           12 => typeof(UniformPadding12),
+                           _  => null
+                       };
             }
         }
 
-        #endregion
+#endregion
 
-        #region TextureVisualiser support
+#region TextureVisualiser support
 
         /// <summary>
         /// An event which is invoked every time a <see cref="Texture"/> is created.
@@ -1367,7 +1376,7 @@ namespace osu.Framework.Graphics.Rendering
 
         Texture[] IRenderer.GetAllTextures() => allTextures.ToArray();
 
-        #endregion
+#endregion
 
         private class PassthroughShaderStore : IShaderStore
         {
