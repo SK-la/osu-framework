@@ -192,7 +192,8 @@ namespace osu.Framework.Graphics.OpenGL
             }
         }
 
-        protected override void SetUniformBufferImplementation(string blockName, IUniformBuffer buffer) => boundUniformBuffers[blockName] = (IGLUniformBuffer)buffer;
+        protected override void SetUniformBufferImplementation(string blockName, IUniformBuffer buffer)
+            => boundUniformBuffers[blockName] = (IGLUniformBuffer)buffer;
 
         protected override bool SetTextureImplementation(INativeTexture? texture, int unit)
         {
@@ -232,7 +233,8 @@ namespace osu.Framework.Graphics.OpenGL
         protected override void SetFrameBufferImplementation(IFrameBuffer? frameBuffer) =>
             GL.BindFramebuffer(FramebufferTarget.Framebuffer, ((GLFrameBuffer?)frameBuffer)?.FrameBuffer ?? backbufferFramebuffer);
 
-        protected override void DeleteFrameBufferImplementation(IFrameBuffer frameBuffer) => GL.DeleteFramebuffer(((GLFrameBuffer)frameBuffer).FrameBuffer);
+        protected override void DeleteFrameBufferImplementation(IFrameBuffer frameBuffer)
+            => GL.DeleteFramebuffer(((GLFrameBuffer)frameBuffer).FrameBuffer);
 
         protected override void ClearImplementation(ClearInfo clearInfo)
         {
@@ -317,16 +319,16 @@ namespace osu.Framework.Graphics.OpenGL
 
                 GL.BlendEquationSeparate(blendingParameters.RGBEquationMode, blendingParameters.AlphaEquationMode);
                 GL.BlendFuncSeparate(blendingParameters.SourceBlendingFactor, blendingParameters.DestinationBlendingFactor,
-                                     blendingParameters.SourceAlphaBlendingFactor, blendingParameters.DestinationAlphaBlendingFactor);
+                    blendingParameters.SourceAlphaBlendingFactor, blendingParameters.DestinationAlphaBlendingFactor);
             }
         }
 
         protected override void SetBlendMaskImplementation(BlendingMask blendingMask)
         {
             GL.ColorMask(blendingMask.HasFlagFast(BlendingMask.Red),
-                         blendingMask.HasFlagFast(BlendingMask.Green),
-                         blendingMask.HasFlagFast(BlendingMask.Blue),
-                         blendingMask.HasFlagFast(BlendingMask.Alpha));
+                blendingMask.HasFlagFast(BlendingMask.Green),
+                blendingMask.HasFlagFast(BlendingMask.Blue),
+                blendingMask.HasFlagFast(BlendingMask.Alpha));
         }
 
         protected override void SetViewportImplementation(RectangleI viewport) => GL.Viewport(viewport.Left, viewport.Top, viewport.Width, viewport.Height);
@@ -375,21 +377,9 @@ namespace osu.Framework.Graphics.OpenGL
 
         public override void CaptureScreenToFrameBuffer(IFrameBuffer frameBuffer)
         {
-            // Bind the framebuffer and copy the current backbuffer content to it
-            BindFrameBuffer(frameBuffer);
-
-            var size = ((IGraphicsSurface)openGLSurface).GetDrawableSize();
-
-            // Copy from the default framebuffer (backbuffer) to the target framebuffer
-            GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, 0); // Default framebuffer
-            GL.BindFramebuffer(FramebufferTarget.DrawFramebuffer, ((GLFrameBuffer)frameBuffer).FrameBuffer);
-
-            GL.BlitFramebuffer(0, 0, size.Width, size.Height,
-                               0, 0, frameBuffer.Texture.Width, frameBuffer.Texture.Height,
-                               ClearBufferMask.ColorBufferBit, BlitFramebufferFilter.Linear);
-
-            // Reset to default framebuffer
-            GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+            frameBuffer.Bind();
+            GL.CopyTexSubImage2D(All.Texture2D, 0, 0, 0, 0, 0, frameBuffer.Texture.Width, frameBuffer.Texture.Height);
+            frameBuffer.Unbind();
         }
 
         protected internal override Image<Rgba32> ExtractFrameBufferData(IFrameBuffer frameBuffer)
@@ -429,8 +419,8 @@ namespace osu.Framework.Graphics.OpenGL
             return new GLShaderPart(this, name, rawData, glType, store);
         }
 
-        protected override IShader CreateShader(string name, IShaderPart[] parts, ShaderCompilationStore compilationStore) =>
-            new GLShader(this, name, parts.Cast<GLShaderPart>().ToArray(), compilationStore);
+        protected override IShader CreateShader(string name, IShaderPart[] parts, ShaderCompilationStore compilationStore)
+            => new GLShader(this, name, parts.Cast<GLShaderPart>().ToArray(), compilationStore);
 
         public override IFrameBuffer CreateFrameBuffer(RenderBufferFormat[]? renderBufferFormats = null, TextureFilteringMode filteringMode = TextureFilteringMode.Linear)
         {
@@ -484,14 +474,13 @@ namespace osu.Framework.Graphics.OpenGL
             return new GLFrameBuffer(this, glFormats, glFilteringMode);
         }
 
-        protected override IUniformBuffer<TData> CreateUniformBuffer<TData>() => new GLUniformBuffer<TData>(this);
+        protected override IUniformBuffer<TData> CreateUniformBuffer<TData>()
+            => new GLUniformBuffer<TData>(this);
 
-        protected override IShaderStorageBufferObject<TData> CreateShaderStorageBufferObject<TData>(int uboSize, int ssboSize) => new GLShaderStorageBufferObject<TData>(this, uboSize, ssboSize);
+        protected override IShaderStorageBufferObject<TData> CreateShaderStorageBufferObject<TData>(int uboSize, int ssboSize)
+            => new GLShaderStorageBufferObject<TData>(this, uboSize, ssboSize);
 
-        protected override INativeTexture CreateNativeTexture(int width,
-                                                              int height,
-                                                              bool manualMipmaps = false,
-                                                              TextureFilteringMode filteringMode = TextureFilteringMode.Linear,
+        protected override INativeTexture CreateNativeTexture(int width, int height, bool manualMipmaps = false, TextureFilteringMode filteringMode = TextureFilteringMode.Linear,
                                                               Color4? initialisationColour = null)
         {
             All glFilteringMode;
@@ -515,7 +504,8 @@ namespace osu.Framework.Graphics.OpenGL
 
         protected override INativeTexture CreateNativeVideoTexture(int width, int height) => new GLVideoTexture(this, width, height);
 
-        protected override IVertexBatch<TVertex> CreateLinearBatch<TVertex>(int size, int maxBuffers, PrimitiveTopology topology) => new GLLinearBatch<TVertex>(this, size, maxBuffers, topology);
+        protected override IVertexBatch<TVertex> CreateLinearBatch<TVertex>(int size, int maxBuffers, PrimitiveTopology topology)
+            => new GLLinearBatch<TVertex>(this, size, maxBuffers, topology);
 
         protected override IVertexBatch<TVertex> CreateQuadBatch<TVertex>(int size, int maxBuffers) => new GLQuadBatch<TVertex>(this, size, maxBuffers);
     }

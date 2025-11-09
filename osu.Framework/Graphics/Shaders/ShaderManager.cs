@@ -40,12 +40,12 @@ namespace osu.Framework.Graphics.Shaders
                 return cached;
 
             return shaderCache[(vertex, fragment)] = renderer.CreateShader(
-                       $"{vertex}/{fragment}",
-                       new[]
-                       {
-                           resolveShaderPart(vertex, ShaderPartType.Vertex),
-                           resolveShaderPart(fragment, ShaderPartType.Fragment)
-                       });
+                $"{vertex}/{fragment}",
+                new[]
+                {
+                    resolveShaderPart(vertex, ShaderPartType.Vertex),
+                    resolveShaderPart(fragment, ShaderPartType.Fragment)
+                });
         }
 
         /// <summary>
@@ -54,14 +54,16 @@ namespace osu.Framework.Graphics.Shaders
         /// <param name="vertex">The vertex shader name.</param>
         /// <param name="fragment">The fragment shader name.</param>
         /// <returns>A cached <see cref="IShader"/> instance, if existing.</returns>
-        public virtual IShader? GetCachedShader(string vertex, string fragment) => shaderCache.TryGetValue((vertex, fragment), out IShader? shader) ? shader : null;
+        public virtual IShader? GetCachedShader(string vertex, string fragment)
+            => shaderCache.TryGetValue((vertex, fragment), out IShader? shader) ? shader : null;
 
         /// <summary>
         /// Attempts to retrieve an already-cached shader part.
         /// </summary>
         /// <param name="name">The name of the shader part.</param>
         /// <returns>A cached <see cref="IShaderPart"/> instance, if existing.</returns>
-        public virtual IShaderPart? GetCachedShaderPart(string name) => partCache.TryGetValue(name, out IShaderPart? part) ? part : null;
+        public virtual IShaderPart? GetCachedShaderPart(string name)
+            => partCache.TryGetValue(name, out IShaderPart? part) ? part : null;
 
         /// <summary>
         /// Attempts to retrieve the raw data for a shader file.
@@ -114,7 +116,7 @@ namespace osu.Framework.Graphics.Shaders
             return string.Empty;
         }
 
-#region IDisposable Support
+        #region IDisposable Support
 
         private bool isDisposed;
 
@@ -143,7 +145,7 @@ namespace osu.Framework.Graphics.Shaders
             }
         }
 
-#endregion
+        #endregion
     }
 
     public static class VertexShaderDescriptor
@@ -160,6 +162,5 @@ namespace osu.Framework.Graphics.Shaders
         public const string BLUR = "Blur";
         public const string GRAYSCALE = "Grayscale";
         public const string VIDEO = "Video";
-        public const string ACRYLIC = "Acrylic";
     }
 }

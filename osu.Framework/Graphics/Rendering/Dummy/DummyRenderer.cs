@@ -22,35 +22,41 @@ namespace osu.Framework.Graphics.Rendering.Dummy
         public override bool IsUvOriginTopLeft => true;
         public override bool IsClipSpaceYInverted => true;
 
-        protected internal override Image<Rgba32> TakeScreenshot() => new Image<Rgba32>(1, 1);
+        protected internal override Image<Rgba32> TakeScreenshot()
+            => new Image<Rgba32>(1, 1);
 
         public override void CaptureScreenToFrameBuffer(IFrameBuffer frameBuffer)
         {
             // Dummy implementation - do nothing
         }
 
-        protected override IShaderPart CreateShaderPart(IShaderStore store, string name, byte[]? rawData, ShaderPartType partType) => new DummyShaderPart();
+        protected override IShaderPart CreateShaderPart(IShaderStore store, string name, byte[]? rawData, ShaderPartType partType)
+            => new DummyShaderPart();
 
-        protected override IShader CreateShader(string name, IShaderPart[] parts, ShaderCompilationStore compilationStore) => new DummyShader(this);
+        protected override IShader CreateShader(string name, IShaderPart[] parts, ShaderCompilationStore compilationStore)
+            => new DummyShader(this);
 
-        protected override IVertexBatch<TVertex> CreateLinearBatch<TVertex>(int size, int maxBuffers, PrimitiveTopology topology) => new DummyVertexBatch<TVertex>();
+        protected override IVertexBatch<TVertex> CreateLinearBatch<TVertex>(int size, int maxBuffers, PrimitiveTopology topology)
+            => new DummyVertexBatch<TVertex>();
 
-        protected override IVertexBatch<TVertex> CreateQuadBatch<TVertex>(int size, int maxBuffers) => new DummyVertexBatch<TVertex>();
+        protected override IVertexBatch<TVertex> CreateQuadBatch<TVertex>(int size, int maxBuffers)
+            => new DummyVertexBatch<TVertex>();
 
-        protected override IUniformBuffer<TData> CreateUniformBuffer<TData>() => new DummyUniformBuffer<TData>();
+        protected override IUniformBuffer<TData> CreateUniformBuffer<TData>()
+            => new DummyUniformBuffer<TData>();
 
-        protected override IShaderStorageBufferObject<TData> CreateShaderStorageBufferObject<TData>(int uboSize, int ssboSize) => new DummyShaderStorageBufferObject<TData>(ssboSize);
+        protected override IShaderStorageBufferObject<TData> CreateShaderStorageBufferObject<TData>(int uboSize, int ssboSize)
+            => new DummyShaderStorageBufferObject<TData>(ssboSize);
 
-        public Texture CreateTexture(int width, int height, bool manualMipmaps = false, TextureFilteringMode filteringMode = TextureFilteringMode.Linear, WrapMode wrapModeS = WrapMode.None) =>
-            base.CreateTexture(width, height, manualMipmaps, filteringMode, wrapModeS, wrapModeS, null);
+        public Texture CreateTexture(int width, int height, bool manualMipmaps = false, TextureFilteringMode filteringMode = TextureFilteringMode.Linear, WrapMode wrapModeS = WrapMode.None)
+            => base.CreateTexture(width, height, manualMipmaps, filteringMode, wrapModeS, wrapModeS, null);
 
-        protected override INativeTexture CreateNativeTexture(int width,
-                                                              int height,
-                                                              bool manualMipmaps = false,
-                                                              TextureFilteringMode filteringMode = TextureFilteringMode.Linear,
-                                                              Color4? initialisationColour = null) => new DummyNativeTexture(this, width, height);
+        protected override INativeTexture CreateNativeTexture(int width, int height, bool manualMipmaps = false, TextureFilteringMode filteringMode = TextureFilteringMode.Linear,
+                                                              Color4? initialisationColour = null)
+            => new DummyNativeTexture(this, width, height);
 
-        protected override INativeTexture CreateNativeVideoTexture(int width, int height) => new DummyNativeTexture(this, width, height);
+        protected override INativeTexture CreateNativeVideoTexture(int width, int height)
+            => new DummyNativeTexture(this, width, height);
 
         protected override void Initialise(IGraphicsSurface graphicsSurface)
         {
@@ -108,7 +114,8 @@ namespace osu.Framework.Graphics.Rendering.Dummy
         {
         }
 
-        protected override bool SetTextureImplementation(INativeTexture? texture, int unit) => true;
+        protected override bool SetTextureImplementation(INativeTexture? texture, int unit)
+            => true;
 
         protected override void SetFrameBufferImplementation(IFrameBuffer? frameBuffer)
         {
@@ -134,7 +141,7 @@ namespace osu.Framework.Graphics.Rendering.Dummy
         {
         }
 
-        public override IFrameBuffer CreateFrameBuffer(RenderBufferFormat[]? renderBufferFormats = null, TextureFilteringMode filteringMode = TextureFilteringMode.Linear) =>
-            new DummyFrameBuffer(this);
+        public override IFrameBuffer CreateFrameBuffer(RenderBufferFormat[]? renderBufferFormats = null, TextureFilteringMode filteringMode = TextureFilteringMode.Linear)
+            => new DummyFrameBuffer(this);
     }
 }

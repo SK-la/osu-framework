@@ -1,64 +1,132 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-using osuTK;
+using System;
+using osu.Framework.Allocation;
+using osu.Framework.Graphics.Colour;
 using osuTK.Graphics;
-using osu.Framework.Graphics.Rendering;
 
 namespace osu.Framework.Graphics.Containers
 {
     /// <summary>
-    /// A container that applies an acrylic/mica effect by blurring the content behind it.
-    /// This creates a frosted glass-like appearance where content below the container is visible through a blur.
+    /// A container that applies an acrylic/frosted glass visual effect.
+    /// This is achieved by using a <see cref="BufferedContainer"/> with blur and a tinted overlay.
+    /// The container blurs its own background (a solid color or drawable), not content behind it.
+    ///
+    /// Usage:
+    /// <code>
+    /// var acrylicEffect = new AcrylicContainer
+    /// {
+    ///     RelativeSizeAxes = Axes.Both,
+    ///     BlurStrength = 10f,
+    ///     TintColour = new Color4(0, 0, 0, 0.3f),
+    ///     BackgroundColour = Color4.White, // The color to blur
+    ///     Children = new Drawable[] { /* your content */ }
+    /// };
+    /// </code>
     /// </summary>
     public partial class AcrylicContainer : BufferedContainer
     {
-        /// <summary>
-        /// The strength of the blur effect applied to the background content.
-        /// </summary>
-        public float BlurStrength { get; set; } = 10f;
+        private float blurStrength = 10f;
 
         /// <summary>
-        /// The background texture to blur. If null, blurs the container's children.
+        /// The strength of the blur effect.
+        /// Higher values create a stronger blur. Range: 0-100, typical values: 5-20.
         /// </summary>
-        public IFrameBuffer? BackgroundBuffer { get; set; }
+        public float BlurStrength
+        {
+            get => blurStrength;
+            set
+            {
+                if (blurStrength == value)
+                    return;
+
+                blurStrength = value;
+                updateBlur();
+            }
+        }
+
+        private ColourInfo tintColour = ColourInfo.SingleColour(new Color4(0, 0, 0, 0.3f));
 
         /// <summary>
         /// The tint colour applied over the blurred background.
+        /// Typically a semi-transparent color like Color4(0, 0, 0, 0.3f).
         /// </summary>
-        public Color4 TintColour { get; set; } = new Color4(1f, 1f, 1f, 0.8f);
-
-        /// <summary>
-        /// Constructs a new acrylic container.
-        /// </summary>
-        public AcrylicContainer()
-            : base(formats: null, pixelSnapping: false, cachedFrameBuffer: false)
+        public new ColourInfo TintColour
         {
-            // Enable drawing original content with blur effect
-            DrawOriginal = true;
-
-            // Set up blur for the acrylic effect
-            BlurSigma = new Vector2(BlurStrength);
-        }
-
-        protected override void LoadComplete()
-        {
-            base.LoadComplete();
-
-            // Schedule a capture of the background after the scene is fully loaded
-            Schedule(() =>
+            get => tintColour;
+            set
             {
-                // Capture the background by temporarily hiding ourselves
-                float wasAlpha = Alpha;
-                Alpha = 0;
+                if (tintColour.Equals(value))
+                    return;
 
-                // Force a redraw to capture the background
-                Invalidate(Invalidation.DrawNode);
-
-                Alpha = wasAlpha;
-            });
+                tintColour = value;
+                updateTint();
+            }
         }
 
-        protected override DrawNode CreateDrawNode() => new AcrylicContainerDrawNode(this);
+        private Drawable? backgroundBox;
+        private Drawable? tintOverlay;
+
+        public AcrylicContainer()
+            : base(cachedFrameBuffer: true)
+        {
+            BackgroundColour = Color4.White; // Default white background to blur
+        }
+
+        [BackgroundDependencyLoader]
+        private void load()
+        {
+            // Add a background box that will be blurred
+            AddInternal(backgroundBox = new Shapes.Box
+            {
+                RelativeSizeAxes = Axes.Both,
+                Colour = BackgroundColour,
+                Depth = float.MaxValue // Behind everything
+            });
+
+            // Add a tint overlay on top
+            AddInternal(tintOverlay = new Shapes.Box
+            {
+                RelativeSizeAxes = Axes.Both,
+                Colour = tintColour,
+                Depth = float.MinValue, // In front of everything
+                Alpha = tintColour.TopLeft.Linear.A
+            });
+
+            updateBlur();
+        }
+
+        private void updateBlur()
+        {
+            if (!IsLoaded)
+                return;
+
+            // Convert BlurStrength to sigma for the blur shader
+            // sigma controls the Gaussian distribution width
+            float sigma = Math.Max(0.5f, blurStrength * 0.5f);
+            this.BlurTo(new osuTK.Vector2(sigma), 200);
+        }
+
+        private void updateTint()
+        {
+            if (tintOverlay != null)
+            {
+                tintOverlay.Colour = tintColour;
+                tintOverlay.Alpha = tintColour.TopLeft.Linear.A;
+            }
+        }
+
+        public new Color4 BackgroundColour
+        {
+            get => base.BackgroundColour;
+            set
+            {
+                base.BackgroundColour = value;
+
+                if (backgroundBox != null)
+                    backgroundBox.Colour = value;
+            }
+        }
     }
 }
