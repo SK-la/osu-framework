@@ -1,132 +1,82 @@
-// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
-// See the LICENCE file in the repository root for full licence text.
-
-using System;
-using osu.Framework.Allocation;
-using osu.Framework.Graphics.Colour;
 using osuTK.Graphics;
+using osu.Framework.Graphics.Rendering;
+using osu.Framework.Graphics.Shaders;
+using osu.Framework.Allocation;
+using osu.Framework.Graphics.Shapes;
 
 namespace osu.Framework.Graphics.Containers
 {
     /// <summary>
-    /// A container that applies an acrylic/frosted glass visual effect.
-    /// This is achieved by using a <see cref="BufferedContainer"/> with blur and a tinted overlay.
-    /// The container blurs its own background (a solid color or drawable), not content behind it.
-    ///
-    /// Usage:
-    /// <code>
-    /// var acrylicEffect = new AcrylicContainer
-    /// {
-    ///     RelativeSizeAxes = Axes.Both,
-    ///     BlurStrength = 10f,
-    ///     TintColour = new Color4(0, 0, 0, 0.3f),
-    ///     BackgroundColour = Color4.White, // The color to blur
-    ///     Children = new Drawable[] { /* your content */ }
-    /// };
-    /// </code>
+    /// A container that applies a true acrylic/mica effect by blurring the content behind it.
+    /// This implementation uses a layered approach with a blur background layer and a darkening overlay.
+    /// The effect is applied regardless of drawing order and adapts to background changes in real-time.
     /// </summary>
-    public partial class AcrylicContainer : BufferedContainer
+    public partial class AcrylicContainer : Container
     {
-        private float blurStrength = 10f;
-
         /// <summary>
-        /// The strength of the blur effect.
-        /// Higher values create a stronger blur. Range: 0-100, typical values: 5-20.
+        /// The strength of the blur effect applied to the background content.
         /// </summary>
-        public float BlurStrength
-        {
-            get => blurStrength;
-            set
-            {
-                if (blurStrength == value)
-                    return;
-
-                blurStrength = value;
-                updateBlur();
-            }
-        }
-
-        private ColourInfo tintColour = ColourInfo.SingleColour(new Color4(0, 0, 0, 0.3f));
+        public float BlurStrength { get; set; } = 10f;
 
         /// <summary>
         /// The tint colour applied over the blurred background.
-        /// Typically a semi-transparent color like Color4(0, 0, 0, 0.3f).
         /// </summary>
-        public new ColourInfo TintColour
-        {
-            get => tintColour;
-            set
-            {
-                if (tintColour.Equals(value))
-                    return;
+        public Color4 TintColour { get; set; } = Color4.White;
 
-                tintColour = value;
-                updateTint();
-            }
-        }
+        /// <summary>
+        /// The darkening factor applied to create depth.
+        /// </summary>
+        public float DarkenFactor { get; set; } = 0.1f;
 
-        private Drawable? backgroundBox;
-        private Drawable? tintOverlay;
+        private AcrylicBlurLayer blurLayer = null!;
+        private Box darkenLayer = null!;
 
+        [Resolved]
+        private IRenderer? renderer { get; set; }
+
+        [Resolved]
+        private ShaderManager shaderManager { get; set; } = null!;
+
+        /// <summary>
+        /// Constructs a new acrylic container.
+        /// </summary>
         public AcrylicContainer()
-            : base(cachedFrameBuffer: true)
         {
-            BackgroundColour = Color4.White; // Default white background to blur
+            // 默认不设置RelativeSizeAxes，让用户决定
         }
 
-        [BackgroundDependencyLoader]
-        private void load()
+        protected override void LoadComplete()
         {
-            // Add a background box that will be blurred
-            AddInternal(backgroundBox = new Shapes.Box
+            base.LoadComplete();
+
+            // 添加虚化背景层
+            Add(blurLayer = new AcrylicBlurLayer
             {
                 RelativeSizeAxes = Axes.Both,
-                Colour = BackgroundColour,
-                Depth = float.MaxValue // Behind everything
+                BlurStrength = BlurStrength,
+                TintColour = TintColour,
+                DarkenFactor = DarkenFactor
             });
 
-            // Add a tint overlay on top
-            AddInternal(tintOverlay = new Shapes.Box
+            // 添加暗化层
+            Add(darkenLayer = new Box
             {
                 RelativeSizeAxes = Axes.Both,
-                Colour = tintColour,
-                Depth = float.MinValue, // In front of everything
-                Alpha = tintColour.TopLeft.Linear.A
+                Colour = new Color4(0, 0, 0, DarkenFactor),
+                Depth = -1 // 确保在虚化层之上
             });
-
-            updateBlur();
         }
 
-        private void updateBlur()
+        protected override void Update()
         {
-            if (!IsLoaded)
-                return;
+            base.Update();
 
-            // Convert BlurStrength to sigma for the blur shader
-            // sigma controls the Gaussian distribution width
-            float sigma = Math.Max(0.5f, blurStrength * 0.5f);
-            this.BlurTo(new osuTK.Vector2(sigma), 200);
-        }
+            // 同步属性到层
+            blurLayer.BlurStrength = BlurStrength;
+            blurLayer.TintColour = TintColour;
+            blurLayer.DarkenFactor = DarkenFactor;
 
-        private void updateTint()
-        {
-            if (tintOverlay != null)
-            {
-                tintOverlay.Colour = tintColour;
-                tintOverlay.Alpha = tintColour.TopLeft.Linear.A;
-            }
-        }
-
-        public new Color4 BackgroundColour
-        {
-            get => base.BackgroundColour;
-            set
-            {
-                base.BackgroundColour = value;
-
-                if (backgroundBox != null)
-                    backgroundBox.Colour = value;
-            }
+            darkenLayer.Colour = new Color4(0, 0, 0, DarkenFactor);
         }
     }
 }

@@ -3,7 +3,6 @@
 
 using System.Collections.Generic;
 using osu.Framework.Allocation;
-using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Colour;
 using osu.Framework.Graphics.Containers;
@@ -77,15 +76,14 @@ namespace osu.Framework.Tests.Visual.Containers
                 Child = acrylicEffect = new AcrylicContainer
                 {
                     RelativeSizeAxes = Axes.Both,
-                    BlurStrength = 15f,
-                    TintColour = new Color4(0, 0, 0, 0.3f),
-                    BackgroundColour = Color4.Black.Opacity(0.5f), // 半透明黑色背景
+                    BlurStrength = 50f,
+                    TintColour = new Color4(1, 1, 1, 0.5f),
                     Children = new Drawable[]
                     {
                         // 在毛玻璃效果上面显示一些文本
                         new SpriteText
                         {
-                            Text = "毛玻璃效果 (Acrylic Effect)\n\n注意: 此容器模糊自己的背景层,\n不是背后的内容。\n这是 osu-framework 的限制。",
+                            Text = "毛玻璃效果 (Acrylic Effect)\n\n此容器实时模糊背后的所有内容,\n包括背景、动画和兄弟元素。",
                             Font = FontUsage.Default.With(size: 30),
                             Colour = Color4.White,
                             Anchor = Anchor.Centre,
@@ -130,7 +128,7 @@ namespace osu.Framework.Tests.Visual.Containers
             {
                 if (acrylicEffect != null)
                 {
-                    var current = acrylicEffect.TintColour.TopLeft.Linear;
+                    var current = acrylicEffect.TintColour;
                     acrylicEffect.TintColour = new Color4(current.R, current.G, current.B, value);
                 }
             });
@@ -140,7 +138,7 @@ namespace osu.Framework.Tests.Visual.Containers
             {
                 if (acrylicEffect != null)
                 {
-                    var alpha = acrylicEffect.TintColour.TopLeft.Linear.A;
+                    var alpha = acrylicEffect.TintColour.A;
                     acrylicEffect.TintColour = new Color4(0, 0, 0, alpha);
                 }
             });
@@ -149,7 +147,7 @@ namespace osu.Framework.Tests.Visual.Containers
             {
                 if (acrylicEffect != null)
                 {
-                    var alpha = acrylicEffect.TintColour.TopLeft.Linear.A;
+                    var alpha = acrylicEffect.TintColour.A;
                     acrylicEffect.TintColour = new Color4(1, 1, 1, alpha);
                 }
             });
@@ -158,7 +156,7 @@ namespace osu.Framework.Tests.Visual.Containers
             {
                 if (acrylicEffect != null)
                 {
-                    var alpha = acrylicEffect.TintColour.TopLeft.Linear.A;
+                    var alpha = acrylicEffect.TintColour.A;
                     acrylicEffect.TintColour = new Color4(1, 0, 0, alpha);
                 }
             });
@@ -167,7 +165,7 @@ namespace osu.Framework.Tests.Visual.Containers
             {
                 if (acrylicEffect != null)
                 {
-                    var alpha = acrylicEffect.TintColour.TopLeft.Linear.A;
+                    var alpha = acrylicEffect.TintColour.A;
                     acrylicEffect.TintColour = new Color4(0, 0, 1, alpha);
                 }
             });

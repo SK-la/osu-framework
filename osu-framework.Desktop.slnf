@@ -15,7 +15,9 @@
       "osu.Framework.Templates\\templates\\template-flappy\\FlappyDon.Game\\FlappyDon.Game.csproj",
       "osu.Framework.Templates\\templates\\template-flappy\\FlappyDon.Resources\\FlappyDon.Resources.csproj",
       "osu.Framework.Tests\\osu.Framework.Tests.csproj",
-      "osu.Framework\\osu.Framework.csproj"
+      "osu.Framework\\osu.Framework.csproj",
+      "SampleGame.Desktop\\SampleGame.Desktop.csproj",
+      "SampleGame\\SampleGame.csproj"
     ]
   }
 }

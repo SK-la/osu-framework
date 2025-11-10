@@ -37,14 +37,9 @@ namespace osu.Framework.Graphics.Containers
             initialized = false;
         }
 
-        // 获取背景缓冲区 - 如果不存在则创建
+        // 获取背景缓冲区 - 不再自动创建，只返回已存在的
         public IFrameBuffer? GetBackgroundBuffer()
         {
-            if (backgroundBuffer == null && renderer != null)
-            {
-                backgroundBuffer = renderer.CreateFrameBuffer(null, TextureFilteringMode.Linear);
-                initialized = true;
-            }
             return backgroundBuffer;
         }
 
@@ -74,10 +69,11 @@ namespace osu.Framework.Graphics.Containers
         // 更新背景缓冲区（在UpdateAfterChildren中调用）
         public void UpdateBackgroundBuffer()
         {
-            if (renderer is Renderer concreteRenderer && backgroundBuffer != null)
-            {
-                concreteRenderer.CaptureScreenToFrameBuffer(backgroundBuffer);
-            }
+            // 暂时禁用屏幕捕获，直到实现正确的API
+            // if (renderer is Renderer concreteRenderer && backgroundBuffer != null)
+            // {
+            //     concreteRenderer.CaptureScreenToFrameBuffer(backgroundBuffer);
+            // }
         }
 
         // 清理资源

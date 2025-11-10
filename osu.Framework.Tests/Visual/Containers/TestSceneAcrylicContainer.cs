@@ -47,12 +47,7 @@ namespace osu.Framework.Tests.Visual.Containers
                     Anchor = Anchor.TopRight,
                     Origin = Anchor.TopRight,
                     Width = 0.5f,
-                    Child = new AcrylicContainer
-                    {
-                        RelativeSizeAxes = Axes.Both,
-                        BlurStrength = 50f,
-                        TintColour = Colour4.Red.Opacity(0.8f),
-                    }
+                    Child = new AcrylicContainer()
                 },
 
                 // Labels
@@ -79,56 +74,47 @@ namespace osu.Framework.Tests.Visual.Containers
             // Blur strength control
             AddSliderStep("blur strength", 0f, 20f, 10f, strength =>
             {
-                var acrylic = Children[2] as AcrylicContainer;
-                if (acrylic != null)
+                if (Children[2] is AcrylicContainer acrylic)
                     acrylic.BlurStrength = strength;
             });
 
             // Tint colour controls
             AddSliderStep("tint alpha", 0f, 1f, 0.8f, alpha =>
             {
-                var acrylic = Children[2] as AcrylicContainer;
-                if (acrylic != null)
+                if (Children[2] is AcrylicContainer acrylic)
                     acrylic.TintColour = Colour4.White.Opacity(alpha);
             });
 
             AddSliderStep("tint red", 0f, 1f, 1f, red =>
             {
-                var acrylic = Children[2] as AcrylicContainer;
-                if (acrylic != null)
+                if (Children[2] is AcrylicContainer acrylic)
                 {
                     var currentColour = acrylic.TintColour;
-                    if (currentColour.TryExtractSingleColour(out var colour))
-                        acrylic.TintColour = new Colour4(red, colour.Linear.G, colour.Linear.B, colour.Linear.A);
+                    acrylic.TintColour = new Colour4(red, currentColour.G, currentColour.B, currentColour.A);
                 }
             });
 
             AddSliderStep("tint green", 0f, 1f, 1f, green =>
             {
-                var acrylic = Children[2] as AcrylicContainer;
-                if (acrylic != null)
+                if (Children[2] is AcrylicContainer acrylic)
                 {
                     var currentColour = acrylic.TintColour;
-                    if (currentColour.TryExtractSingleColour(out var colour))
-                        acrylic.TintColour = new Colour4(colour.Linear.R, green, colour.Linear.B, colour.Linear.A);
+                    acrylic.TintColour = new Colour4(currentColour.R, green, currentColour.B, currentColour.A);
                 }
             });
 
             AddSliderStep("tint blue", 0f, 1f, 1f, blue =>
             {
-                var acrylic = Children[2] as AcrylicContainer;
-                if (acrylic != null)
+                if (Children[2] is AcrylicContainer acrylic)
                 {
                     var currentColour = acrylic.TintColour;
-                    if (currentColour.TryExtractSingleColour(out var colour))
-                        acrylic.TintColour = new Colour4(colour.Linear.R, colour.Linear.G, blue, colour.Linear.A);
+                    acrylic.TintColour = new Colour4(currentColour.R, currentColour.G, blue, currentColour.A);
                 }
             });
 
             AddStep("toggle tint colour", () =>
             {
-                var acrylic = Children[2] as AcrylicContainer;
-                if (acrylic != null)
+                if (Children[2] is AcrylicContainer acrylic)
                 {
                     isWhiteTint = !isWhiteTint;
                     acrylic.TintColour = isWhiteTint
@@ -140,52 +126,43 @@ namespace osu.Framework.Tests.Visual.Containers
             // Test different blur scenarios
             AddStep("no blur", () =>
             {
-                var acrylic = Children[2] as AcrylicContainer;
-                if (acrylic != null) acrylic.BlurStrength = 0;
+                if (Children[2] is AcrylicContainer acrylic) acrylic.BlurStrength = 0;
             });
             AddStep("light blur", () =>
             {
-                var acrylic = Children[2] as AcrylicContainer;
-                if (acrylic != null) acrylic.BlurStrength = 5;
+                if (Children[2] is AcrylicContainer acrylic) acrylic.BlurStrength = 5;
             });
             AddStep("medium blur", () =>
             {
-                var acrylic = Children[2] as AcrylicContainer;
-                if (acrylic != null) acrylic.BlurStrength = 10;
+                if (Children[2] is AcrylicContainer acrylic) acrylic.BlurStrength = 10;
             });
             AddStep("heavy blur", () =>
             {
-                var acrylic = Children[2] as AcrylicContainer;
-                if (acrylic != null) acrylic.BlurStrength = 20;
+                if (Children[2] is AcrylicContainer acrylic) acrylic.BlurStrength = 20;
             });
 
             // Test tint scenarios
             AddStep("no tint", () =>
             {
-                var acrylic = Children[2] as AcrylicContainer;
-                if (acrylic != null) acrylic.TintColour = Colour4.White.Opacity(0);
+                if (Children[2] is AcrylicContainer acrylic) acrylic.TintColour = Colour4.White.Opacity(0);
             });
             AddStep("subtle tint", () =>
             {
-                var acrylic = Children[2] as AcrylicContainer;
-                if (acrylic != null) acrylic.TintColour = Colour4.White.Opacity(0.3f);
+                if (Children[2] is AcrylicContainer acrylic) acrylic.TintColour = Colour4.White.Opacity(0.3f);
             });
             AddStep("medium tint", () =>
             {
-                var acrylic = Children[2] as AcrylicContainer;
-                if (acrylic != null) acrylic.TintColour = Colour4.White.Opacity(0.6f);
+                if (Children[2] is AcrylicContainer acrylic) acrylic.TintColour = Colour4.White.Opacity(0.6f);
             });
             AddStep("strong tint", () =>
             {
-                var acrylic = Children[2] as AcrylicContainer;
-                if (acrylic != null) acrylic.TintColour = Colour4.White.Opacity(0.9f);
+                if (Children[2] is AcrylicContainer acrylic) acrylic.TintColour = Colour4.White.Opacity(0.9f);
             });
 
             // Debug presets
             AddStep("debug: high contrast", () =>
             {
-                var acrylic = Children[2] as AcrylicContainer;
-                if (acrylic != null)
+                if (Children[2] is AcrylicContainer acrylic)
                 {
                     acrylic.BlurStrength = 15f;
                     acrylic.TintColour = Colour4.Red.Opacity(0.7f);
@@ -194,8 +171,7 @@ namespace osu.Framework.Tests.Visual.Containers
 
             AddStep("debug: subtle effect", () =>
             {
-                var acrylic = Children[2] as AcrylicContainer;
-                if (acrylic != null)
+                if (Children[2] is AcrylicContainer acrylic)
                 {
                     acrylic.BlurStrength = 3f;
                     acrylic.TintColour = Colour4.Black.Opacity(0.2f);
@@ -204,8 +180,7 @@ namespace osu.Framework.Tests.Visual.Containers
 
             AddStep("debug: reset to default", () =>
             {
-                var acrylic = Children[2] as AcrylicContainer;
-                if (acrylic != null)
+                if (Children[2] is AcrylicContainer acrylic)
                 {
                     acrylic.BlurStrength = 10f;
                     acrylic.TintColour = Colour4.White.Opacity(0.8f);
