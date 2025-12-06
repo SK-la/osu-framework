@@ -191,12 +191,6 @@ namespace osu.Framework.Graphics.Rendering.Deferred
         protected internal override Image<Rgba32> TakeScreenshot()
             => VeldridDevice.TakeScreenshot();
 
-        public override void CaptureScreenToFrameBuffer(IFrameBuffer frameBuffer)
-        {
-            // TODO: Implement screen capture for DeferredRenderer
-            // This is a placeholder implementation
-        }
-
         void IRenderer.EnterDrawNode(DrawNode node)
         {
             drawNodeStack.Push(node);

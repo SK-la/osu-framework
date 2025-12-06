@@ -375,13 +375,6 @@ namespace osu.Framework.Graphics.OpenGL
             return image;
         }
 
-        public override void CaptureScreenToFrameBuffer(IFrameBuffer frameBuffer)
-        {
-            frameBuffer.Bind();
-            GL.CopyTexSubImage2D(All.Texture2D, 0, 0, 0, 0, 0, frameBuffer.Texture.Width, frameBuffer.Texture.Height);
-            frameBuffer.Unbind();
-        }
-
         protected internal override Image<Rgba32> ExtractFrameBufferData(IFrameBuffer frameBuffer)
         {
             int width = frameBuffer.Texture.Width;

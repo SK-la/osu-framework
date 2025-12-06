@@ -351,12 +351,6 @@ namespace osu.Framework.Graphics.Rendering
         protected internal Image<Rgba32> TakeScreenshot();
 
         /// <summary>
-        /// Captures the current screen content to a framebuffer for post-processing effects.
-        /// </summary>
-        /// <param name="frameBuffer">The framebuffer to capture to.</param>
-        void CaptureScreenToFrameBuffer(IFrameBuffer frameBuffer);
-
-        /// <summary>
         /// Returns an image containing the content of a framebuffer.
         /// </summary>
         Image<Rgba32>? ExtractFrameBufferData(IFrameBuffer frameBuffer);
@@ -398,13 +392,8 @@ namespace osu.Framework.Graphics.Rendering
         /// <param name="wrapModeS">The texture's horizontal wrap mode.</param>
         /// <param name="wrapModeT">The texture's vertex wrap mode.</param>
         /// <returns>The <see cref="Texture"/>.</returns>
-        Texture CreateTexture(int width,
-                              int height,
-                              bool manualMipmaps = false,
-                              TextureFilteringMode filteringMode = TextureFilteringMode.Linear,
-                              WrapMode wrapModeS = WrapMode.None,
-                              WrapMode wrapModeT = WrapMode.None,
-                              Color4? initialisationColour = null);
+        Texture CreateTexture(int width, int height, bool manualMipmaps = false, TextureFilteringMode filteringMode = TextureFilteringMode.Linear, WrapMode wrapModeS = WrapMode.None,
+                              WrapMode wrapModeT = WrapMode.None, Color4? initialisationColour = null);
 
         /// <summary>
         /// Creates a new video texture.
@@ -471,7 +460,7 @@ namespace osu.Framework.Graphics.Rendering
         {
         }
 
-#region TextureVisualiser Support
+        #region TextureVisualiser Support
 
         /// <summary>
         /// An event which is invoked every time a <see cref="Texture"/> is created.
@@ -483,6 +472,6 @@ namespace osu.Framework.Graphics.Rendering
         /// </summary>
         internal Texture[] GetAllTextures();
 
-#endregion
+        #endregion
     }
 }

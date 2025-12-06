@@ -328,10 +328,8 @@ namespace osu.Framework.Graphics.Rendering
         protected internal abstract Image<Rgba32> TakeScreenshot();
 
         /// <summary>
-        /// Captures the current screen content to a framebuffer for post-processing effects.
+        /// Returns an image containing the content of a framebuffer.
         /// </summary>
-        /// <param name="frameBuffer">The framebuffer to capture to.</param>
-        public abstract void CaptureScreenToFrameBuffer(IFrameBuffer frameBuffer);
         protected internal virtual Image<Rgba32>? ExtractFrameBufferData(IFrameBuffer frameBuffer) => null;
 
         /// <summary>

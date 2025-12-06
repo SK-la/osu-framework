@@ -223,12 +223,6 @@ namespace osu.Framework.Graphics.Veldrid
         protected internal override Image<Rgba32> TakeScreenshot()
             => veldridDevice.TakeScreenshot();
 
-        public override void CaptureScreenToFrameBuffer(IFrameBuffer frameBuffer)
-        {
-            // TODO: Implement screen capture for Veldrid
-            // This is a placeholder implementation
-        }
-
         protected internal override Image<Rgba32>? ExtractFrameBufferData(IFrameBuffer frameBuffer)
             => ExtractTexture((VeldridTexture)frameBuffer.Texture.NativeTexture);
 

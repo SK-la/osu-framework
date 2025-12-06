@@ -328,8 +328,8 @@ namespace osu.Framework.Input.Bindings
                 }
             }
 
-            if (handled != null)
-                Logger.Log($"Pressed ({pressed}) handled by {handled}.", LoggingTarget.Runtime, LogLevel.Debug);
+            // if (handled != null)
+            //     Logger.Log($"Pressed ({pressed}) handled by {handled}.", LoggingTarget.Runtime, LogLevel.Debug);
 
             return handled;
         }

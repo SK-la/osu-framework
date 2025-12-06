@@ -25,11 +25,6 @@ namespace osu.Framework.Graphics.Rendering.Dummy
         protected internal override Image<Rgba32> TakeScreenshot()
             => new Image<Rgba32>(1, 1);
 
-        public override void CaptureScreenToFrameBuffer(IFrameBuffer frameBuffer)
-        {
-            // Dummy implementation - do nothing
-        }
-
         protected override IShaderPart CreateShaderPart(IShaderStore store, string name, byte[]? rawData, ShaderPartType partType)
             => new DummyShaderPart();
 
