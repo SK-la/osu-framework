@@ -41,12 +41,8 @@ namespace osu.Framework.Audio.Asio
         {
             public int Inputs;
             public int Outputs;
-            public int Format;
-            public double BufferLength;
-            public double MinBufferLength;
-            public double MaxBufferLength;
-            public double PreferredBufferLength;
-            public double Granularity;
+            public int BufferSize;    // minimum + maximum + preferred buffer size (all in samples)
+            public int BufferGranularity;  // buffer size granularity
         }
 
         [DllImport(dll, CallingConvention = CallingConvention.Winapi, EntryPoint = "BASS_ASIO_GetDeviceInfo")]

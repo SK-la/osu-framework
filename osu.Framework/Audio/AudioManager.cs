@@ -637,10 +637,27 @@ namespace osu.Framework.Audio
                     Logger.Log($"Audio device initialisation threw an exception (mode: {outputMode}, device: {device}): {e}", name: "audio", level: LogLevel.Error);
                     return false;
                 }
+
+                // For ASIO mode, if InitDevice fails, we should always return false to trigger fallback
+                // even if BASS was successfully initialized, because ASIO is what the user requested
+                if (outputMode == AudioOutputMode.Asio && !innerSuccess)
+                {
+                    Logger.Log("ASIO device initialization failed, falling back to default audio", name: "audio", level: LogLevel.Important);
+                    return false;
+                }
+
                 bool alreadyInitialised = Bass.LastError == Errors.Already;
 
                 if (alreadyInitialised)
+                {
+                    // For ASIO mode, even if BASS is already initialized, we need to ensure ASIO was properly initialized
+                    if (outputMode == AudioOutputMode.Asio && !innerSuccess)
+                    {
+                        Logger.Log("ASIO initialization failed even though BASS was already initialized", name: "audio", level: LogLevel.Error);
+                        return false;
+                    }
                     return true;
+                }
 
                 if (BassUtils.CheckFaulted(false))
                     return false;

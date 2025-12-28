@@ -594,35 +594,117 @@ namespace osu.Framework.Threading
             if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
                 return false;
 
+            // Log ASIO device information before attempting initialization
+            try
+            {
+                var devices = BassAsio.EnumerateDevices().ToList();
+                if (asioDeviceIndex >= 0 && asioDeviceIndex < devices.Count)
+                {
+                    var device = devices[asioDeviceIndex];
+                    Logger.Log($"ASIO device info - Index: {device.Index}, Name: '{device.Name}'", name: "audio", level: LogLevel.Verbose);
+                }
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Failed to get ASIO device info: {e.Message}", name: "audio", level: LogLevel.Important);
+            }
+
             Logger.Log($"Attempting BassAsio initialisation for device {asioDeviceIndex}", name: "audio", level: LogLevel.Verbose);
 
             freeAsio();
 
-            try
+            // Some ASIO drivers (like Voicemeeter) may need a moment to be ready
+            // or may be busy if another application is using them
+            const int maxRetries = 3;
+            const int retryDelay = 500; // ms
+
+            for (int attempt = 0; attempt < maxRetries; attempt++)
             {
-                if (!BassAsio.Init(asioDeviceIndex))
+                if (attempt > 0)
                 {
-                    int code = BassAsio.ErrorGetCode();
-                    Logger.Log($"BassAsio.Init({asioDeviceIndex}) failed (code {code} / {(Errors)code}). This usually means the driver is unavailable/busy, incompatible, or failed to open.", name: "audio", level: LogLevel.Error);
+                    Logger.Log($"Retrying ASIO initialisation for device {asioDeviceIndex} (attempt {attempt + 1}/{maxRetries})", name: "audio", level: LogLevel.Verbose);
+                    System.Threading.Thread.Sleep(retryDelay);
+                }
+
+                try
+                {
+                    // CRITICAL: Use AsioInitFlags.Thread for proper ASIO initialization
+                    // This creates a dedicated thread with message queue, which is REQUIRED for ASIO to work
+                    const int BASS_ASIO_THREAD = 1; // AsioInitFlags.Thread
+                    if (!BassAsio.Init(asioDeviceIndex, BASS_ASIO_THREAD))
+                    {
+                        int code = BassAsio.ErrorGetCode();
+                        string errorMessage = GetAsioErrorDescription(code);
+
+                        if (attempt == maxRetries - 1)
+                        {
+                            Logger.Log($"BassAsio.Init({asioDeviceIndex}) failed after {maxRetries} attempts (code {code} / {(Errors)code}). {errorMessage}", name: "audio", level: LogLevel.Error);
+                            return false;
+                        }
+                        else
+                        {
+                            Logger.Log($"BassAsio.Init({asioDeviceIndex}) failed (code {code} / {(Errors)code}). {errorMessage} Retrying...", name: "audio", level: LogLevel.Important);
+                            continue;
+                        }
+                    }
+                }
+                catch (DllNotFoundException e)
+                {
+                    Logger.Log($"ASIO output is unavailable because bassasio.dll could not be loaded ({e.Message}). Ensure bassasio.dll is deployed alongside the other BASS native libraries (usually under x64/x86; referencing the BASS.ASIO NuGet package should copy it automatically).", name: "audio", level: LogLevel.Error);
                     return false;
                 }
-            }
-            catch (DllNotFoundException e)
-            {
-                Logger.Log($"ASIO output is unavailable because bassasio.dll could not be loaded ({e.Message}). Ensure bassasio.dll is deployed alongside the other BASS native libraries (usually under x64/x86; referencing the BASS.ASIO NuGet package should copy it automatically).", name: "audio", level: LogLevel.Error);
-                return false;
-            }
-            catch (EntryPointNotFoundException e)
-            {
-                Logger.Log($"ASIO output is unavailable because bassasio.dll is incompatible/mismatched ({e.Message}). Ensure the correct bassasio.dll (matching the BASS native libraries and process architecture) is deployed.", name: "audio", level: LogLevel.Error);
-                return false;
+                catch (EntryPointNotFoundException e)
+                {
+                    Logger.Log($"ASIO output is unavailable because bassasio.dll is incompatible/mismatched ({e.Message}). Ensure the correct bassasio.dll (matching the BASS native libraries and process architecture) is deployed.", name: "audio", level: LogLevel.Error);
+                    return false;
+                }
+
+                // If we get here, BassAsio.Init succeeded
+                break;
             }
 
-            int sampleRate = (int)Math.Round(BassAsio.GetRate());
-            if (sampleRate <= 0)
-                sampleRate = 44100;
+            // Check and set sample rate
+            double initialRate = BassAsio.GetRate();
+            Logger.Log($"ASIO device initial sample rate: {initialRate}Hz", name: "audio", level: LogLevel.Verbose);
 
-            globalMixerHandle.Value = BassMix.CreateMixerStream(sampleRate, 2, BassFlags.MixerNonStop | BassFlags.Decode | BassFlags.Float);
+            // Try to set a common sample rate that most ASIO drivers support
+            const double preferredSampleRate = 44100.0;
+            bool rateSet44100 = BassAsio.SetRate(preferredSampleRate);
+            Logger.Log($"Set ASIO sample rate to {preferredSampleRate}Hz: {rateSet44100}", name: "audio", level: LogLevel.Verbose);
+
+            double rateAfter44100 = BassAsio.GetRate();
+            Logger.Log($"ASIO sample rate after setting 44100Hz: {rateAfter44100}Hz", name: "audio", level: LogLevel.Verbose);
+
+            if (!rateSet44100 || Math.Abs(rateAfter44100 - preferredSampleRate) > 1)
+            {
+                bool rateSet48000 = BassAsio.SetRate(48000.0);
+                Logger.Log($"Set ASIO sample rate to 48000Hz: {rateSet48000}", name: "audio", level: LogLevel.Verbose);
+
+                double rateAfter48000 = BassAsio.GetRate();
+                Logger.Log($"ASIO sample rate after setting 48000Hz: {rateAfter48000}Hz", name: "audio", level: LogLevel.Verbose);
+
+                if (!rateSet48000 || Math.Abs(rateAfter48000 - 48000.0) > 1)
+                {
+                    Logger.Log($"ASIO device may not support common sample rates, using device default: {rateAfter48000}Hz", name: "audio", level: LogLevel.Important);
+                }
+            }
+
+            double finalSampleRate = BassAsio.GetRate();
+            Logger.Log($"ASIO device final sample rate: {finalSampleRate}Hz", name: "audio", level: LogLevel.Verbose);
+
+            // Validate and set final sample rate
+            if (finalSampleRate <= 0 || finalSampleRate > 1000000 || double.IsNaN(finalSampleRate) || double.IsInfinity(finalSampleRate))
+            {
+                Logger.Log($"Invalid sample rate detected ({finalSampleRate}Hz), using 44100Hz as fallback", name: "audio", level: LogLevel.Important);
+                finalSampleRate = 44100;
+                // Try to set it again
+                BassAsio.SetRate(finalSampleRate);
+            }
+
+            double sampleRate = finalSampleRate;
+            Logger.Log($"Using ASIO sample rate: {sampleRate}Hz", name: "audio", level: LogLevel.Verbose);
+
+            globalMixerHandle.Value = BassMix.CreateMixerStream((int)sampleRate, 2, BassFlags.MixerNonStop | BassFlags.Decode | BassFlags.Float);
 
             // If we don't store the procedure, it gets GC'd away.
             asioProcedure = (input, channel, buffer, length, user) =>
@@ -633,22 +715,84 @@ namespace osu.Framework.Threading
                 return Bass.ChannelGetData(globalMixerHandle.Value!.Value, buffer, length);
             };
 
-            // Enable stereo output (first two output channels) and feed the global mixer stream into it.
-            // We ignore additional channels for now.
-            BassAsio.ChannelEnable(false, 0, asioProcedure, IntPtr.Zero);
-            BassAsio.ChannelEnable(false, 1, asioProcedure, IntPtr.Zero);
+            // Get ASIO info to understand channel configuration
+            BassAsio.AsioInfo info = new BassAsio.AsioInfo();
+            bool infoRetrieved = BassAsio.GetInfo(out info);
+            Logger.Log($"ASIO GetInfo result: {infoRetrieved}, Outputs: {info.Outputs}, Inputs: {info.Inputs}, BufferSize: {info.BufferSize}, BufferGranularity: {info.BufferGranularity}", name: "audio", level: LogLevel.Verbose);
 
-            BassAsio.GetInfo(out var info);
+            // Validate the info values - if they're garbage, use safe defaults
+            int outputChannels = (info.Outputs > 0 && info.Outputs < 100) ? info.Outputs : 2;
+            int inputChannels = (info.Inputs >= 0 && info.Inputs < 100) ? info.Inputs : 0;
+            int bufferSize = (info.BufferSize > 0 && info.BufferSize < 100000) ? info.BufferSize : 1024;
 
-            if (!BassAsio.Start(0))
+            Logger.Log($"ASIO device info - Outputs: {outputChannels}, Inputs: {inputChannels}, BufferSize: {bufferSize} samples", name: "audio", level: LogLevel.Verbose);
+
+            // Configure output channels properly
+            if (outputChannels >= 2)
             {
-                Logger.Log($"BassAsio.Start() failed (code {BassAsio.ErrorGetCode()})", name: "audio", level: LogLevel.Error);
+                // Enable channel 0 (left)
+                if (!BassAsio.ChannelEnable(false, 0, asioProcedure, IntPtr.Zero))
+                {
+                    Logger.Log($"Failed to enable ASIO output channel 0: {BassAsio.ErrorGetCode()}", name: "audio", level: LogLevel.Error);
+                    freeAsio();
+                    return false;
+                }
+
+                // Enable channel 1 (right)
+                if (!BassAsio.ChannelEnable(false, 1, asioProcedure, IntPtr.Zero))
+                {
+                    Logger.Log($"Failed to enable ASIO output channel 1: {BassAsio.ErrorGetCode()}", name: "audio", level: LogLevel.Error);
+                    freeAsio();
+                    return false;
+                }
+
+                Logger.Log("ASIO stereo output channels configured successfully", name: "audio", level: LogLevel.Verbose);
+            }
+            else if (outputChannels >= 1)
+            {
+                // Mono output - enable only channel 0
+                if (!BassAsio.ChannelEnable(false, 0, asioProcedure, IntPtr.Zero))
+                {
+                    Logger.Log($"Failed to enable ASIO output channel 0: {BassAsio.ErrorGetCode()}", name: "audio", level: LogLevel.Error);
+                    freeAsio();
+                    return false;
+                }
+
+                Logger.Log("ASIO mono output channel configured (only 1 output available)", name: "audio", level: LogLevel.Important);
+            }
+            else
+            {
+                Logger.Log("ASIO device has no output channels", name: "audio", level: LogLevel.Error);
                 freeAsio();
                 return false;
             }
 
-            Logger.Log($"BassAsio initialised (Rate: {BassAsio.GetRate()}, OutChans: {info.Outputs})");
+            Logger.Log($"ASIO device initialized - SampleRate: {sampleRate}Hz, Outputs: {outputChannels}, Inputs: {inputChannels}, BufferSize: {bufferSize} samples", name: "audio", level: LogLevel.Verbose);
+
+            if (!BassAsio.Start(0))
+            {
+                int startError = BassAsio.ErrorGetCode();
+                Logger.Log($"BassAsio.Start() failed (code {startError} / {(Errors)startError})", name: "audio", level: LogLevel.Error);
+                freeAsio();
+                return false;
+            }
+
+            Logger.Log($"BassAsio initialised (Rate: {BassAsio.GetRate()}, OutChans: {outputChannels})");
             return true;
+        }
+
+        private static string GetAsioErrorDescription(int errorCode)
+        {
+            return errorCode switch
+            {
+                3 => "This usually means the ASIO driver is unavailable, busy (possibly used by another application), incompatible, or failed to open. For Voicemeeter drivers, ensure the Voicemeeter application is running. For FiiO ASIO drivers, try routing through Voicemeeter or ensure no other applications are using the FiiO device.",
+                1 => "The ASIO driver is not present or invalid.",
+                2 => "No input/output is present.",
+                6 => "Unsupported sample format. The ASIO driver may not support the requested audio format.",
+                8 => "Already initialized. This may indicate a driver conflict or improper cleanup.",
+                23 => "Device not present. The ASIO device may have been disconnected or is not available.",
+                _ => $"Unknown ASIO error (code {errorCode})."
+            };
         }
 
         private void freeAsio()
