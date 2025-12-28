@@ -5,6 +5,7 @@ using System;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using osu.Framework.Allocation;
+using osu.Framework.Audio.Asio;
 using osu.Framework.Development;
 using osu.Framework.Threading;
 
@@ -72,7 +73,7 @@ namespace osu.Framework.Tests.Audio
             try
             {
                 int count = 0;
-                foreach (var device in osu.Framework.Audio.Asio.BassAsioPI.EnumerateDevices())
+                foreach (var device in AsioDeviceManager.AvailableDevices)
                 {
                     Console.WriteLine($"ASIO Device {device.Index}: {device.Name}");
                     count++;

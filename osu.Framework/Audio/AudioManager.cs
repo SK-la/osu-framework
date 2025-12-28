@@ -13,7 +13,8 @@ using JetBrains.Annotations;
 using ManagedBass;
 using ManagedBass.Fx;
 using ManagedBass.Mix;
-using osu.Framework.Audio.Asio;
+using AsioDeviceManager = osu.Framework.Audio.Asio.AsioDeviceManager;
+using AsioConfig = osu.Framework.Audio.Asio.AsioConfig;
 using osu.Framework.Audio.Mixing;
 using osu.Framework.Audio.Mixing.Bass;
 using osu.Framework.Audio.Sample;
@@ -103,6 +104,12 @@ namespace osu.Framework.Audio
         /// Is fired whenever an audio device is lost and provides its name.
         /// </summary>
         public event Action<string> OnLostDevice;
+
+        /// <summary>
+        /// Is fired whenever an ASIO device is successfully initialized with a specific sample rate.
+        /// Provides the actual sample rate that was used.
+        /// </summary>
+        public Action<double>? OnAsioDeviceInitialized;
 
         /// <summary>
         /// The preferred audio device we should use. A value of
@@ -798,7 +805,7 @@ namespace osu.Framework.Audio
                 try
                 {
                     int asioCount = 0;
-                    foreach (var device in BassAsioPI.EnumerateDevices())
+                    foreach (var device in AsioDeviceManager.AvailableDevices)
                     {
                         entries.Add(formatEntry(device.Name, type_asio));
                         asioCount++;
@@ -856,8 +863,14 @@ namespace osu.Framework.Audio
                 {
                     try
                     {
-                        if (BassAsioPI.TryFindDeviceIndexByName(name, out int found))
-                            index = found;
+                        foreach (var device in AsioDeviceManager.AvailableDevices)
+                        {
+                            if (device.Name == name)
+                            {
+                                index = device.Index;
+                                break;
+                            }
+                        }
                     }
                     catch (DllNotFoundException e)
                     {

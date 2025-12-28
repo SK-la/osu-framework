@@ -12,6 +12,7 @@ using System.Runtime.InteropServices;
 using ManagedBass;
 using ManagedBass.Mix;
 using ManagedBass.Wasapi;
+using ManagedBass.Asio;
 using osu.Framework.Audio.Asio;
 using osu.Framework.Audio;
 using osu.Framework.Bindables;
@@ -95,6 +96,9 @@ namespace osu.Framework.Threading
 
                 managers.Add(manager);
             }
+
+            // Set the manager reference for event triggering
+            Manager ??= manager;
 
             manager.GlobalMixerHandle.BindTo(globalMixerHandle);
         }
@@ -192,7 +196,11 @@ namespace osu.Framework.Threading
         private readonly IntPtr wasapiUserPtr;
         private bool wasapiExclusiveActive;
 
-        private BassAsioPI.AsioProcedure asioProcedure = null!;
+        /// <summary>
+        /// Reference to the AudioManager that owns this AudioThread.
+        /// Used to trigger events when ASIO devices are initialized.
+        /// </summary>
+        internal AudioManager? Manager { get; set; }
 
         /// <summary>
         /// If a global mixer is being used, this will be the BASS handle for it.
@@ -305,7 +313,7 @@ namespace osu.Framework.Threading
 
             try
             {
-                NativeLibrary.SetDllImportResolver(typeof(BassAsioPI).Assembly, resolveBassAsio);
+                NativeLibrary.SetDllImportResolver(typeof(ManagedBass.Asio.BassAsio).Assembly, resolveBassAsio);
             }
             catch (InvalidOperationException)
             {
@@ -599,10 +607,24 @@ namespace osu.Framework.Threading
             freeAsio();
 
             // Use the new AsioDeviceManager for initialization
-            double targetSampleRate = preferredSampleRate ?? AsioAudioFormat.DefaultSampleRate;
-            if (!AsioDeviceManager.InitializeDevice(asioDeviceIndex, targetSampleRate))
+            // First try the preferred sample rate, then try common supported rates
+            double[] commonRates = { 44100.0, 48000.0, 96000.0, 176400.0, 192000.0 };
+            List<double> ratesToTry = new List<double>();
+
+            if (preferredSampleRate.HasValue)
+                ratesToTry.Add(preferredSampleRate.Value);
+
+            foreach (double rate in commonRates)
             {
-                Logger.Log($"AsioDeviceManager.InitializeDevice({asioDeviceIndex}, {targetSampleRate}) failed", name: "audio", level: LogLevel.Error);
+                if (!ratesToTry.Contains(rate))
+                    ratesToTry.Add(rate);
+            }
+
+            double[] sampleRatesToTry = ratesToTry.ToArray();
+
+            if (!AsioDeviceManager.InitializeDevice(asioDeviceIndex, sampleRatesToTry))
+            {
+                Logger.Log($"AsioDeviceManager.InitializeDevice({asioDeviceIndex}, [{string.Join(",", sampleRatesToTry)}]) failed", name: "audio", level: LogLevel.Error);
                 // Free the BASS device so AudioManager can retry with a different device
                 FreeDevice(Bass.CurrentDevice);
                 return false;
@@ -629,7 +651,7 @@ namespace osu.Framework.Threading
                 outputChannels = 2;
             }
 
-            double sampleRate = BassAsioPI.GetRate();
+            double sampleRate = BassAsio.Rate;
             Logger.Log($"ASIO device sample rate: {sampleRate}Hz", name: "audio", level: LogLevel.Verbose);
 
             // Validate sample rate
@@ -669,6 +691,10 @@ namespace osu.Framework.Threading
             }
 
             Logger.Log($"ASIO device initialized successfully - SampleRate: {sampleRate}Hz, Outputs: {outputChannels}, Inputs: {inputChannels}", name: "audio", level: LogLevel.Important);
+
+            // Notify that ASIO device was initialized with the actual sample rate
+            Manager?.OnAsioDeviceInitialized?.Invoke(sampleRate);
+
             return true;
         }
 

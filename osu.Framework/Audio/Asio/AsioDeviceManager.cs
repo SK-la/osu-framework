@@ -10,6 +10,56 @@ using osu.Framework.Logging;
 namespace osu.Framework.Audio.Asio
 {
     /// <summary>
+    /// Audio format configuration for ASIO devices.
+    /// </summary>
+    internal static class AsioAudioFormat
+    {
+        /// <summary>
+        /// Common sample rates supported by most ASIO devices.
+        /// </summary>
+        public static readonly double[] SupportedSampleRates = { 44100, 48000, 96000, 176400, 192000 };
+
+        /// <summary>
+        /// Default sample rate to use when none is specified.
+        /// </summary>
+        public const double DefaultSampleRate = 48000;
+
+        /// <summary>
+        /// Checks if a sample rate is commonly supported.
+        /// </summary>
+        public static bool IsSupportedSampleRate(double sampleRate)
+        {
+            foreach (double rate in SupportedSampleRates)
+            {
+                if (Math.Abs(rate - sampleRate) < 1)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Gets the closest supported sample rate to the requested rate.
+        /// </summary>
+        public static double GetClosestSupportedSampleRate(double requestedRate)
+        {
+            double closest = DefaultSampleRate;
+            double minDiff = double.MaxValue;
+
+            foreach (double rate in SupportedSampleRates)
+            {
+                double diff = Math.Abs(rate - requestedRate);
+                if (diff < minDiff)
+                {
+                    minDiff = diff;
+                    closest = rate;
+                }
+            }
+
+            return closest;
+        }
+    }
+
+    /// <summary>
     /// Manages ASIO audio devices and their initialization.
     /// </summary>
     public static class AsioDeviceManager
@@ -32,11 +82,11 @@ namespace osu.Framework.Audio.Asio
         /// <summary>
         /// Gets a list of available ASIO devices.
         /// </summary>
-        public static IEnumerable<AsioDeviceInfo> AvailableDevices
+        public static IEnumerable<(int Index, string Name)> AvailableDevices
         {
             get
             {
-                var devices = new List<AsioDeviceInfo>();
+                var devices = new List<(int, string)>();
 
                 int deviceCount = BassAsio.DeviceCount;
                 for (int i = 0; i < deviceCount; i++)
@@ -44,7 +94,7 @@ namespace osu.Framework.Audio.Asio
                     var info = new AsioDeviceInfo();
                     if (BassAsio.GetDeviceInfo(i, out info))
                     {
-                        devices.Add(info);
+                        devices.Add((i, info.Name));
                     }
                 }
 
@@ -56,13 +106,13 @@ namespace osu.Framework.Audio.Asio
         /// Initializes an ASIO device.
         /// </summary>
         /// <param name="deviceIndex">The index of the ASIO device to initialize.</param>
-        /// <param name="targetSampleRate">The target sample rate to use. If null, will use device default.</param>
+        /// <param name="sampleRatesToTry">The sample rates to try in order. If null, will try common rates.</param>
         /// <returns>True if initialization was successful, false otherwise.</returns>
-        public static bool InitializeDevice(int deviceIndex, double? targetSampleRate = null)
+        public static bool InitializeDevice(int deviceIndex, double[] sampleRatesToTry = null)
         {
             try
             {
-                Logger.Log($"InitializeDevice called with deviceIndex={deviceIndex}, targetSampleRate={targetSampleRate}", LoggingTarget.Runtime, LogLevel.Debug);
+                Logger.Log($"InitializeDevice called with deviceIndex={deviceIndex}, sampleRatesToTry={string.Join(",", sampleRatesToTry ?? Array.Empty<double>())}", LoggingTarget.Runtime, LogLevel.Debug);
 
                 // Check if the device index is valid
                 if (deviceIndex < 0 || deviceIndex >= BassAsio.DeviceCount)
@@ -101,29 +151,28 @@ namespace osu.Framework.Audio.Asio
                     {
                         Logger.Log($"ASIO device initialized successfully with flags: {flags}", LoggingTarget.Runtime, LogLevel.Important);
 
-                        // Check if device supports the required sample rate
-                        double preferredRate = targetSampleRate ?? 44100.0;
-                        if (!BassAsio.CheckRate(preferredRate))
+                        // Try sample rates in order
+                        double[] ratesToTry = sampleRatesToTry ?? new double[] { 44100.0, 48000.0 };
+                        double successfulRate = 0;
+
+                        foreach (double rate in ratesToTry)
                         {
-                            Logger.Log($"Device does not support {preferredRate}Hz sample rate, trying 48kHz", LoggingTarget.Runtime, LogLevel.Debug);
-                            if (!BassAsio.CheckRate(48000.0))
+                            if (BassAsio.CheckRate(rate))
                             {
-                                Logger.Log($"Device does not support 44.1kHz or 48kHz sample rates, cannot initialize", LoggingTarget.Runtime, LogLevel.Error);
-                                BassAsio.Free();
-                                return false;
+                                BassAsio.Rate = rate;
+                                successfulRate = rate;
+                                Logger.Log($"Set ASIO device sample rate to {rate}Hz", LoggingTarget.Runtime, LogLevel.Debug);
+                                break;
                             }
-                            preferredRate = 48000.0;
+                            else
+                            {
+                                Logger.Log($"Device does not support {rate}Hz sample rate", LoggingTarget.Runtime, LogLevel.Debug);
+                            }
                         }
 
-                        // Set the device sample rate
-                        if (BassAsio.CheckRate(preferredRate))
+                        if (successfulRate == 0)
                         {
-                            BassAsio.Rate = preferredRate;
-                            Logger.Log($"Set ASIO device sample rate to {preferredRate}Hz", LoggingTarget.Runtime, LogLevel.Debug);
-                        }
-                        else
-                        {
-                            Logger.Log($"Failed to set sample rate {preferredRate}Hz even though CheckRate returned true", LoggingTarget.Runtime, LogLevel.Error);
+                            Logger.Log("Device does not support any of the requested sample rates", LoggingTarget.Runtime, LogLevel.Error);
                             BassAsio.Free();
                             return false;
                         }
