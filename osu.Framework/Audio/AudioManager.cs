@@ -156,12 +156,25 @@ namespace osu.Framework.Audio
         private ImmutableArray<DeviceInfo> audioDevices = ImmutableArray<DeviceInfo>.Empty;
         private ImmutableList<string> bassDeviceNames = ImmutableList<string>.Empty;
 
-        private const string type_bass = "BASS";
-        private const string type_wasapi_shared = "WASAPI Shared";
+        private static int asioNativeUnavailableLogged;
+
         private const string type_wasapi_exclusive = "WASAPI Exclusive";
         private const string type_asio = "ASIO";
 
         private bool syncingSelection;
+
+        private static void setBindableValueLeaseSafe<T>(Bindable<T> bindable, T newValue)
+        {
+            if (EqualityComparer<T>.Default.Equals(bindable.Value, newValue))
+                return;
+
+            // Bindables may be in a leased state (Disabled=true), in which case Value setter throws.
+            // We still want internal state/config to reflect the effective output fallback.
+            if (bindable.Disabled)
+                bindable.SetValue(bindable.Value, newValue, true);
+            else
+                bindable.Value = newValue;
+        }
 
         protected enum AudioOutputMode
         {
@@ -170,6 +183,9 @@ namespace osu.Framework.Audio
             WasapiExclusive,
             Asio,
         }
+
+        private const string legacy_type_bass = "BASS";
+        private const string legacy_type_wasapi_shared = "WASAPI Shared";
 
         private Scheduler scheduler => thread.Scheduler;
 
@@ -211,16 +227,22 @@ namespace osu.Framework.Audio
                 config.BindWith(FrameworkSetting.VolumeMusic, VolumeTrack);
             }
 
-            AudioDevice.ValueChanged += _ => scheduler.AddOnce(initCurrentDevice);
-            UseExperimentalWasapi.ValueChanged += _ => scheduler.AddOnce(() =>
+            AudioDevice.ValueChanged += _ =>
             {
-                // Keep checkbox meaningful by mapping it onto the dropdown selection when possible.
-                bool selectionChanged = syncSelectionFromExperimentalFlag();
+                if (syncingSelection)
+                    return;
 
-                // If selection didn't change (eg. Default), we still need to reinitialise.
-                if (!selectionChanged)
-                    initCurrentDevice();
-            });
+                scheduler.AddOnce(initCurrentDevice);
+            };
+            UseExperimentalWasapi.ValueChanged += _ =>
+            {
+                if (syncingSelection)
+                    return;
+
+                // Shared-mode WASAPI is still controlled by this checkbox.
+                // Keep dropdown values as the raw BASS device name to preserve historical UX.
+                scheduler.AddOnce(initCurrentDevice);
+            };
             // initCurrentDevice not required for changes to `GlobalMixerHandle` as it is only changed when experimental wasapi is toggled (handled above).
             GlobalMixerHandle.ValueChanged += handle => usingGlobalMixer.Value = handle.NewValue.HasValue;
 
@@ -355,7 +377,12 @@ namespace osu.Framework.Audio
         /// </summary>
         private void initCurrentDevice()
         {
+            normaliseLegacySelection();
+
             var (mode, deviceName, asioIndex) = parseSelection(AudioDevice.Value);
+
+            bool isExplicitSelection = !string.IsNullOrEmpty(AudioDevice.Value);
+            bool isTypedSelection = hasTypeSuffix(AudioDevice.Value);
 
             // keep legacy setting and dropdown selection in sync.
             if (!syncingSelection)
@@ -364,19 +391,11 @@ namespace osu.Framework.Audio
 
                 try
                 {
-                    switch (mode)
-                    {
-                        case AudioOutputMode.WasapiShared:
-                            UseExperimentalWasapi.Value = true;
-                            break;
-
-                        case AudioOutputMode.Default:
-                        case AudioOutputMode.WasapiExclusive:
-                        case AudioOutputMode.Asio:
-                            // Exclusive/ASIO are separate modes; keep the experimental flag off to avoid confusion.
-                            UseExperimentalWasapi.Value = false;
-                            break;
-                    }
+                    // Keep legacy checkbox meaningful.
+                    // - Shared WASAPI is only controlled by UseExperimentalWasapi.
+                    // - Selecting Exclusive/ASIO should turn the checkbox off to avoid confusion.
+                    if (mode == AudioOutputMode.WasapiExclusive || mode == AudioOutputMode.Asio)
+                        setBindableValueLeaseSafe(UseExperimentalWasapi, false);
                 }
                 finally
                 {
@@ -402,6 +421,20 @@ namespace osu.Framework.Audio
             // mobiles are an exception as the built-in speakers may not be provided as an audio device name,
             // but they are still provided by BASS under the internal device name "Default".
             if ((bassDeviceNames.Count > 0 || RuntimeInfo.IsMobile) && trySetDevice(bass_default_device, mode, asioIndex)) return;
+
+            // If an explicit selection failed, revert to Default and try again in default output mode.
+            // Keep checkbox state unless Exclusive/ASIO was chosen.
+            if (isExplicitSelection)
+            {
+                if (trySetDevice(bass_default_device, AudioOutputMode.Default, null))
+                {
+                    revertSelectionToDefault();
+                    return;
+                }
+
+                // If even default failed, still revert selection (we'll fall through to NoSound).
+                revertSelectionToDefault();
+            }
 
             // no audio devices can be used, so try using Bass-provided "No sound" device as last resort.
             trySetDevice(Bass.NoSoundDevice, AudioOutputMode.Default, null);
@@ -430,46 +463,76 @@ namespace osu.Framework.Audio
 
                 return true;
             }
+
+            void revertSelectionToDefault()
+            {
+                if (syncingSelection)
+                    return;
+
+                syncingSelection = true;
+
+                try
+                {
+                    // Ensure "Default" means OS default device.
+                    // Preserve shared-WASAPI checkbox unless an exclusive/ASIO entry was explicitly selected.
+                    if (isTypedSelection || mode == AudioOutputMode.WasapiExclusive || mode == AudioOutputMode.Asio)
+                        setBindableValueLeaseSafe(UseExperimentalWasapi, false);
+
+                    setBindableValueLeaseSafe(AudioDevice, string.Empty);
+                }
+                finally
+                {
+                    syncingSelection = false;
+                }
+            }
         }
 
-        private bool syncSelectionFromExperimentalFlag()
+        private void normaliseLegacySelection()
         {
             if (syncingSelection)
-                return false;
+                return;
 
-            // Do not attempt to remap explicit exclusive/ASIO selections.
-            if (tryParseSuffixed(AudioDevice.Value, type_wasapi_exclusive, out _) || tryParseSuffixed(AudioDevice.Value, type_asio, out _))
-                return false;
+            string selection = AudioDevice.Value;
+            if (string.IsNullOrEmpty(selection))
+                return;
 
-            if (string.IsNullOrEmpty(AudioDevice.Value))
-                return false;
-
-            string baseName;
-
-            if (tryParseSuffixed(AudioDevice.Value, type_bass, out string parsed))
-                baseName = parsed;
-            else if (tryParseSuffixed(AudioDevice.Value, type_wasapi_shared, out parsed))
-                baseName = parsed;
-            else
-                // Legacy un-suffixed device name.
-                baseName = AudioDevice.Value;
-
-            string desired = formatEntry(baseName, UseExperimentalWasapi.Value ? type_wasapi_shared : type_bass);
-            if (AudioDevice.Value == desired)
-                return false;
-
-            syncingSelection = true;
-
-            try
+            // Earlier iterations stored typed entries for BASS/Shared WASAPI directly in AudioDevice.
+            // The dropdown now shows raw device names (plus appended Exclusive/ASIO), so rewrite old values.
+            if (tryParseSuffixed(selection, legacy_type_bass, out string baseName))
             {
-                AudioDevice.Value = desired;
-                return true;
+                syncingSelection = true;
+
+                try
+                {
+                    setBindableValueLeaseSafe(AudioDevice, baseName);
+                }
+                finally
+                {
+                    syncingSelection = false;
+                }
+
+                return;
             }
-            finally
+
+            if (tryParseSuffixed(selection, legacy_type_wasapi_shared, out baseName))
             {
-                syncingSelection = false;
+                syncingSelection = true;
+
+                try
+                {
+                    setBindableValueLeaseSafe(AudioDevice, baseName);
+                    setBindableValueLeaseSafe(UseExperimentalWasapi, true);
+                }
+                finally
+                {
+                    syncingSelection = false;
+                }
             }
         }
+
+        private static bool hasTypeSuffix(string value)
+            => value.EndsWith($" ({type_wasapi_exclusive})", StringComparison.Ordinal)
+               || value.EndsWith($" ({type_asio})", StringComparison.Ordinal);
 
         /// <summary>
         /// This method calls <see cref="Bass.Init(int, int, DeviceInitFlags, IntPtr, IntPtr)"/>.
@@ -511,7 +574,17 @@ namespace osu.Framework.Audio
 
             bool attemptInit()
             {
-                bool innerSuccess = thread.InitDevice(device, toThreadOutputMode(outputMode), asioDeviceIndex);
+                bool innerSuccess;
+
+                try
+                {
+                    innerSuccess = thread.InitDevice(device, toThreadOutputMode(outputMode), asioDeviceIndex);
+                }
+                catch (Exception e)
+                {
+                    Logger.Log($"Audio device initialisation threw an exception (mode: {outputMode}, device: {device}): {e}", name: "audio", level: LogLevel.Error);
+                    return false;
+                }
                 bool alreadyInitialised = Bass.LastError == Errors.Already;
 
                 if (alreadyInitialised)
@@ -522,7 +595,7 @@ namespace osu.Framework.Audio
 
                 if (!innerSuccess)
                 {
-                    Logger.Log("BASS failed to initialize but did not provide an error code", level: LogLevel.Error);
+                    Logger.Log("BASS failed to initialize but did not provide an error code", name: "audio", level: LogLevel.Error);
                     return false;
                 }
 
@@ -600,13 +673,12 @@ namespace osu.Framework.Audio
         {
             var entries = new List<string>();
 
-            // Base BASS devices.
-            entries.AddRange(bassDeviceNames.Select(d => formatEntry(d, type_bass)));
+            // Base BASS devices (historical UX: raw device names).
+            entries.AddRange(bassDeviceNames);
 
             if (RuntimeInfo.OS == RuntimeInfo.Platform.Windows)
             {
-                // WASAPI variants for each BASS device.
-                entries.AddRange(bassDeviceNames.Select(d => formatEntry(d, type_wasapi_shared)));
+                // Only append extra entries; shared WASAPI remains controlled by the checkbox.
                 entries.AddRange(bassDeviceNames.Select(d => formatEntry(d, type_wasapi_exclusive)));
 
                 // ASIO drivers.
@@ -614,6 +686,14 @@ namespace osu.Framework.Audio
                 {
                     foreach (var device in BassAsio.EnumerateDevices())
                         entries.Add(formatEntry(device.Name, type_asio));
+                }
+                catch (DllNotFoundException e)
+                {
+                    logAsioNativeUnavailableOnce(e);
+                }
+                catch (EntryPointNotFoundException e)
+                {
+                    logAsioNativeUnavailableOnce(e);
                 }
                 catch
                 {
@@ -636,13 +716,7 @@ namespace osu.Framework.Audio
                     : AudioOutputMode.Default, string.Empty, null);
             }
 
-            if (tryParseSuffixed(selection, type_bass, out string name))
-                return (AudioOutputMode.Default, name, null);
-
-            if (tryParseSuffixed(selection, type_wasapi_shared, out name))
-                return (AudioOutputMode.WasapiShared, name, null);
-
-            if (tryParseSuffixed(selection, type_wasapi_exclusive, out name))
+            if (tryParseSuffixed(selection, type_wasapi_exclusive, out string name))
                 return (AudioOutputMode.WasapiExclusive, name, null);
 
             if (tryParseSuffixed(selection, type_asio, out name))
@@ -655,6 +729,14 @@ namespace osu.Framework.Audio
                     {
                         if (BassAsio.TryFindDeviceIndexByName(name, out int found))
                             index = found;
+                    }
+                    catch (DllNotFoundException e)
+                    {
+                        logAsioNativeUnavailableOnce(e);
+                    }
+                    catch (EntryPointNotFoundException e)
+                    {
+                        logAsioNativeUnavailableOnce(e);
                     }
                     catch
                     {
@@ -683,6 +765,15 @@ namespace osu.Framework.Audio
 
             baseName = string.Empty;
             return false;
+        }
+
+        private static void logAsioNativeUnavailableOnce(Exception e)
+        {
+            if (Interlocked.Exchange(ref asioNativeUnavailableLogged, 1) == 1)
+                return;
+
+            // Keep message actionable but non-intrusive (no UI popups).
+            Logger.Log($"ASIO output is unavailable because the native bassasio library could not be loaded ({e.GetType().Name}: {e.Message}). Ensure bassasio.dll is present alongside other BASS native libraries (typically in the x64/x86 subdirectories; the BASS.ASIO NuGet package will copy it automatically when referenced).", name: "audio", level: LogLevel.Error);
         }
 
         /// <summary>

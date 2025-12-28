@@ -69,6 +69,9 @@ namespace osu.Framework.Audio.Asio
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool Stop();
 
+        [DllImport(dll, CallingConvention = CallingConvention.Winapi, EntryPoint = "BASS_ASIO_ErrorGetCode")]
+        internal static extern int ErrorGetCode();
+
         [DllImport(dll, CallingConvention = CallingConvention.Winapi, EntryPoint = "BASS_ASIO_GetInfo")]
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool GetInfo(out AsioInfo info);

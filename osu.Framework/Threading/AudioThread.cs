@@ -5,7 +5,10 @@ using osu.Framework.Statistics;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.InteropServices;
 using ManagedBass;
 using ManagedBass.Mix;
 using ManagedBass.Wasapi;
@@ -20,6 +23,16 @@ namespace osu.Framework.Threading
 {
     public class AudioThread : GameThread
     {
+        private static int wasapiNativeUnavailableLogged;
+        private static int asioResolverRegistered;
+
+        private const uint SEM_FAILCRITICALERRORS = 0x0001;
+        private const uint SEM_NOGPFAULTERRORBOX = 0x0002;
+        private const uint SEM_NOOPENFILEERRORBOX = 0x8000;
+
+        [DllImport("kernel32.dll")]
+        private static extern uint SetErrorMode(uint mode);
+
         public AudioThread()
             : base(name: "Audio")
         {
@@ -140,7 +153,10 @@ namespace osu.Framework.Threading
 
             // Try to initialise the device, or request a re-initialise.
             if (!Bass.Init(deviceId, Flags: (DeviceInitFlags)128)) // 128 == BASS_DEVICE_REINIT
+            {
+                Logger.Log($"BASS.Init({deviceId}) failed: {Bass.LastError}", name: "audio", level: LogLevel.Error);
                 return false;
+            }
 
             switch (outputMode)
             {
@@ -152,13 +168,21 @@ namespace osu.Framework.Threading
 
                 case AudioThreadOutputMode.WasapiShared:
                     freeAsio();
-                    attemptWasapiInitialisation(exclusive: false);
+                    if (!attemptWasapiInitialisation(exclusive: false))
+                    {
+                        Logger.Log($"BassWasapi initialisation failed (shared mode). BASS error: {Bass.LastError}", name: "audio", level: LogLevel.Error);
+                        return false;
+                    }
 
                     break;
 
                 case AudioThreadOutputMode.WasapiExclusive:
                     freeAsio();
-                    attemptWasapiInitialisation(exclusive: true);
+                    if (!attemptWasapiInitialisation(exclusive: true))
+                    {
+                        Logger.Log($"BassWasapi initialisation failed (exclusive mode). BASS error: {Bass.LastError}", name: "audio", level: LogLevel.Error);
+                        return false;
+                    }
 
                     break;
 
@@ -167,7 +191,7 @@ namespace osu.Framework.Threading
 
                     if (asioDeviceIndex == null)
                     {
-                        Logger.Log("ASIO output mode selected but no ASIO device index was provided.", level: LogLevel.Error);
+                        Logger.Log("ASIO output mode selected but no ASIO device index was provided.", name: "audio", level: LogLevel.Error);
                         return false;
                     }
 
@@ -209,11 +233,71 @@ namespace osu.Framework.Threading
         /// </summary>
         internal static void PreloadBass()
         {
+            if (RuntimeInfo.OS == RuntimeInfo.Platform.Windows)
+                registerBassAsioResolver();
+
             if (RuntimeInfo.OS == RuntimeInfo.Platform.Linux)
             {
                 // required for the time being to address libbass_fx.so load failures (see https://github.com/ppy/osu/issues/2852)
                 Library.Load("libbass.so", Library.LoadFlags.RTLD_LAZY | Library.LoadFlags.RTLD_GLOBAL);
             }
+        }
+
+        private static void registerBassAsioResolver()
+        {
+            if (System.Threading.Interlocked.Exchange(ref asioResolverRegistered, 1) == 1)
+                return;
+
+            try
+            {
+                NativeLibrary.SetDllImportResolver(typeof(BassAsio).Assembly, resolveBassAsio);
+            }
+            catch (InvalidOperationException)
+            {
+                // Resolver was already registered elsewhere.
+            }
+        }
+
+        private static IntPtr resolveBassAsio(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
+        {
+            if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
+                return IntPtr.Zero;
+
+            if (!libraryName.Equals("bassasio", StringComparison.OrdinalIgnoreCase)
+                && !libraryName.Equals("bassasio.dll", StringComparison.OrdinalIgnoreCase))
+                return IntPtr.Zero;
+
+            // Prefer loading from known output directories (x64/x86). This avoids relying on the default DLL search path,
+            // which doesn't include these subdirectories, and also prevents Windows from showing error dialogs.
+            string baseDir = RuntimeInfo.StartupDirectory;
+            string arch = IntPtr.Size == 8 ? "x64" : "x86";
+            string runtimeRid = IntPtr.Size == 8 ? "win-x64" : "win-x86";
+
+            string[] candidatePaths =
+            {
+                Path.Combine(baseDir, "runtimes", runtimeRid, "native", "bassasio.dll"),
+                Path.Combine(baseDir, arch, "bassasio.dll"),
+            };
+
+            foreach (string path in candidatePaths)
+            {
+                if (!File.Exists(path))
+                    continue;
+
+                uint oldMode = SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+
+                try
+                {
+                    return NativeLibrary.Load(path);
+                }
+                finally
+                {
+                    SetErrorMode(oldMode);
+                }
+            }
+
+            // Throw to avoid the runtime falling back to default resolution, which may trigger a Windows error dialog.
+            throw new DllNotFoundException($"bassasio.dll was not found in expected locations. Checked: {string.Join("; ", candidatePaths)}");
         }
 
         private bool attemptWasapiInitialisation() => attemptWasapiInitialisation(exclusive: false);
@@ -223,7 +307,30 @@ namespace osu.Framework.Threading
             if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
                 return false;
 
-            Logger.Log("Attempting local BassWasapi initialisation");
+            try
+            {
+                return attemptWasapiInitialisationInternal(exclusive);
+            }
+            catch (DllNotFoundException e)
+            {
+                logWasapiNativeUnavailableOnce($"WASAPI output is unavailable because basswasapi.dll could not be loaded ({e.Message}).");
+                return false;
+            }
+            catch (EntryPointNotFoundException e)
+            {
+                logWasapiNativeUnavailableOnce($"WASAPI output is unavailable because basswasapi.dll is incompatible/mismatched ({e.Message}).");
+                return false;
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"WASAPI initialisation failed with exception: {e}", name: "audio", level: LogLevel.Error);
+                return false;
+            }
+        }
+
+        private bool attemptWasapiInitialisationInternal(bool exclusive)
+        {
+            Logger.Log($"Attempting local BassWasapi initialisation (exclusive: {exclusive})", name: "audio", level: LogLevel.Verbose);
 
             int wasapiDevice = -1;
 
@@ -260,51 +367,104 @@ namespace osu.Framework.Threading
 
         private bool initWasapi(int wasapiDevice, bool exclusive)
         {
-            // This is intentionally initialised inline and stored to a field.
-            // If we don't do this, it gets GC'd away.
-            wasapiProcedure = (buffer, length, _) =>
+            try
             {
-                if (globalMixerHandle.Value == null)
-                    return 0;
-
-                return Bass.ChannelGetData(globalMixerHandle.Value!.Value, buffer, length);
-            };
-            wasapiNotifyProcedure = (notify, device, _) => Scheduler.Add(() =>
-            {
-                if (notify == WasapiNotificationType.DefaultOutput)
+                // This is intentionally initialised inline and stored to a field.
+                // If we don't do this, it gets GC'd away.
+                wasapiProcedure = (buffer, length, _) =>
                 {
-                    freeWasapi();
-                    initWasapi(device, exclusive);
-                }
-            });
+                    if (globalMixerHandle.Value == null)
+                        return 0;
 
-            var flags = WasapiInitFlags.EventDriven | WasapiInitFlags.AutoFormat;
-            if (exclusive)
-                flags |= (WasapiInitFlags)16; // WasapiInitFlags.Exclusive (not available in older bindings).
+                    return Bass.ChannelGetData(globalMixerHandle.Value!.Value, buffer, length);
+                };
+                wasapiNotifyProcedure = (notify, device, _) => Scheduler.Add(() =>
+                {
+                    if (notify == WasapiNotificationType.DefaultOutput)
+                    {
+                        freeWasapi();
+                        initWasapi(device, exclusive);
+                    }
+                });
 
-            bool initialised = BassWasapi.Init(wasapiDevice, Procedure: wasapiProcedure, Flags: flags, Buffer: 0f, Period: float.Epsilon);
-            Logger.Log($"Initialising BassWasapi for device {wasapiDevice}...{(initialised ? "success!" : "FAILED")}");
+                var flags = WasapiInitFlags.EventDriven | WasapiInitFlags.AutoFormat;
+                if (exclusive)
+                    flags |= (WasapiInitFlags)16; // WasapiInitFlags.Exclusive (not available in older bindings).
 
-            if (!initialised)
+                // Important: in exclusive mode, the underlying implementation may not support event-driven callbacks
+                // and can fall back to polling. Using a near-zero period (float.Epsilon) can then cause a busy-loop,
+                // leading to time running far too fast (and eventual instability elsewhere).
+                float bufferSeconds = exclusive ? 0.05f : 0f;
+                float periodSeconds = exclusive ? 0.01f : float.Epsilon;
+
+                bool initialised = BassWasapi.Init(wasapiDevice, Procedure: wasapiProcedure, Flags: flags, Buffer: bufferSeconds, Period: periodSeconds);
+                Logger.Log($"Initialising BassWasapi for device {wasapiDevice} (exclusive: {exclusive}, buffer: {bufferSeconds:0.###}s, period: {periodSeconds:0.###}s)...{(initialised ? "success!" : "FAILED")}", name: "audio", level: LogLevel.Verbose);
+
+                if (!initialised)
+                    return false;
+
+                BassWasapi.GetInfo(out var wasapiInfo);
+                globalMixerHandle.Value = BassMix.CreateMixerStream(wasapiInfo.Frequency, wasapiInfo.Channels, BassFlags.MixerNonStop | BassFlags.Decode | BassFlags.Float);
+                BassWasapi.Start();
+
+                BassWasapi.SetNotify(wasapiNotifyProcedure);
+                return true;
+            }
+            catch (DllNotFoundException e)
+            {
+                logWasapiNativeUnavailableOnce($"WASAPI output is unavailable because basswasapi.dll could not be loaded ({e.Message}).");
+                freeWasapi();
                 return false;
-
-            BassWasapi.GetInfo(out var wasapiInfo);
-            globalMixerHandle.Value = BassMix.CreateMixerStream(wasapiInfo.Frequency, wasapiInfo.Channels, BassFlags.MixerNonStop | BassFlags.Decode | BassFlags.Float);
-            BassWasapi.Start();
-
-            BassWasapi.SetNotify(wasapiNotifyProcedure);
-            return true;
+            }
+            catch (EntryPointNotFoundException e)
+            {
+                logWasapiNativeUnavailableOnce($"WASAPI output is unavailable because basswasapi.dll is incompatible/mismatched ({e.Message}).");
+                freeWasapi();
+                return false;
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"WASAPI init failed with exception: {e}", name: "audio", level: LogLevel.Error);
+                freeWasapi();
+                return false;
+            }
         }
 
         private void freeWasapi()
         {
             if (globalMixerHandle.Value == null) return;
 
-            // The mixer probably doesn't need to be recycled. Just keeping things sane for now.
-            Bass.StreamFree(globalMixerHandle.Value.Value);
-            BassWasapi.Stop();
-            BassWasapi.Free();
-            globalMixerHandle.Value = null;
+            try
+            {
+                // The mixer probably doesn't need to be recycled. Just keeping things sane for now.
+                Bass.StreamFree(globalMixerHandle.Value.Value);
+                BassWasapi.Stop();
+                BassWasapi.Free();
+            }
+            catch (DllNotFoundException e)
+            {
+                logWasapiNativeUnavailableOnce($"WASAPI cleanup failed because basswasapi.dll could not be loaded ({e.Message}).");
+            }
+            catch (EntryPointNotFoundException e)
+            {
+                logWasapiNativeUnavailableOnce($"WASAPI cleanup failed because basswasapi.dll is incompatible/mismatched ({e.Message}).");
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"WASAPI cleanup failed with exception: {e}", name: "audio", level: LogLevel.Error);
+            }
+            finally
+            {
+                globalMixerHandle.Value = null;
+            }
+        }
+
+        private static void logWasapiNativeUnavailableOnce(string message)
+        {
+            if (System.Threading.Interlocked.Exchange(ref wasapiNativeUnavailableLogged, 1) == 1)
+                return;
+
+            Logger.Log(message, name: "audio", level: LogLevel.Error);
         }
 
         private bool initAsio(int asioDeviceIndex)
@@ -312,7 +472,7 @@ namespace osu.Framework.Threading
             if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
                 return false;
 
-            Logger.Log($"Attempting BassAsio initialisation for device {asioDeviceIndex}");
+            Logger.Log($"Attempting BassAsio initialisation for device {asioDeviceIndex}", name: "audio", level: LogLevel.Verbose);
 
             freeAsio();
 
@@ -320,18 +480,18 @@ namespace osu.Framework.Threading
             {
                 if (!BassAsio.Init(asioDeviceIndex))
                 {
-                    Logger.Log($"BassAsio.Init({asioDeviceIndex}) failed", level: LogLevel.Error);
+                    Logger.Log($"BassAsio.Init({asioDeviceIndex}) failed (code {BassAsio.ErrorGetCode()})", name: "audio", level: LogLevel.Error);
                     return false;
                 }
             }
             catch (DllNotFoundException e)
             {
-                Logger.Log($"bassasio native library not found ({e.Message}). ASIO output will be unavailable.", level: LogLevel.Error);
+                Logger.Log($"ASIO output is unavailable because bassasio.dll could not be loaded ({e.Message}). Ensure bassasio.dll is deployed alongside the other BASS native libraries (usually under x64/x86; referencing the BASS.ASIO NuGet package should copy it automatically).", name: "audio", level: LogLevel.Error);
                 return false;
             }
             catch (EntryPointNotFoundException e)
             {
-                Logger.Log($"bassasio native library is incompatible ({e.Message}). ASIO output will be unavailable.", level: LogLevel.Error);
+                Logger.Log($"ASIO output is unavailable because bassasio.dll is incompatible/mismatched ({e.Message}). Ensure the correct bassasio.dll (matching the BASS native libraries and process architecture) is deployed.", name: "audio", level: LogLevel.Error);
                 return false;
             }
 
@@ -359,7 +519,7 @@ namespace osu.Framework.Threading
 
             if (!BassAsio.Start(0))
             {
-                Logger.Log("BassAsio.Start() failed", level: LogLevel.Error);
+                Logger.Log($"BassAsio.Start() failed (code {BassAsio.ErrorGetCode()})", name: "audio", level: LogLevel.Error);
                 freeAsio();
                 return false;
             }
