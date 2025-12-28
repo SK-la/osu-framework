@@ -740,8 +740,13 @@ namespace osu.Framework.Audio
                 // ASIO drivers.
                 try
                 {
+                    int asioCount = 0;
                     foreach (var device in BassAsio.EnumerateDevices())
+                    {
                         entries.Add(formatEntry(device.Name, type_asio));
+                        asioCount++;
+                    }
+                    Logger.Log($"Found {asioCount} ASIO devices", name: "audio", level: LogLevel.Verbose);
                 }
                 catch (DllNotFoundException e)
                 {
