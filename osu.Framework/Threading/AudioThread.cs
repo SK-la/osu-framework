@@ -9,6 +9,7 @@ using System.Linq;
 using ManagedBass;
 using ManagedBass.Mix;
 using ManagedBass.Wasapi;
+using osu.Framework.Audio.Asio;
 using osu.Framework.Audio;
 using osu.Framework.Bindables;
 using osu.Framework.Development;
@@ -124,13 +125,15 @@ namespace osu.Framework.Threading
         private WasapiProcedure? wasapiProcedure;
         private WasapiNotifyProcedure? wasapiNotifyProcedure;
 
+        private BassAsio.AsioProcedure asioProcedure = null!;
+
         /// <summary>
         /// If a global mixer is being used, this will be the BASS handle for it.
         /// If non-null, all game mixers should be added to this mixer.
         /// </summary>
         private readonly Bindable<int?> globalMixerHandle = new Bindable<int?>();
 
-        internal bool InitDevice(int deviceId, bool useExperimentalWasapi)
+        internal bool InitDevice(int deviceId, AudioThreadOutputMode outputMode, int? asioDeviceIndex = null)
         {
             Debug.Assert(ThreadSafety.IsAudioThread);
             Trace.Assert(deviceId != -1); // The real device ID should always be used, as the -1 device has special cases which are hard to work with.
@@ -139,10 +142,40 @@ namespace osu.Framework.Threading
             if (!Bass.Init(deviceId, Flags: (DeviceInitFlags)128)) // 128 == BASS_DEVICE_REINIT
                 return false;
 
-            if (useExperimentalWasapi)
-                attemptWasapiInitialisation();
-            else
-                freeWasapi();
+            switch (outputMode)
+            {
+                case AudioThreadOutputMode.Default:
+                    freeAsio();
+                    freeWasapi();
+
+                    break;
+
+                case AudioThreadOutputMode.WasapiShared:
+                    freeAsio();
+                    attemptWasapiInitialisation(exclusive: false);
+
+                    break;
+
+                case AudioThreadOutputMode.WasapiExclusive:
+                    freeAsio();
+                    attemptWasapiInitialisation(exclusive: true);
+
+                    break;
+
+                case AudioThreadOutputMode.Asio:
+                    freeWasapi();
+
+                    if (asioDeviceIndex == null)
+                    {
+                        Logger.Log("ASIO output mode selected but no ASIO device index was provided.", level: LogLevel.Error);
+                        return false;
+                    }
+
+                    if (!initAsio(asioDeviceIndex.Value))
+                        return false;
+
+                    break;
+            }
 
             initialised_devices.Add(deviceId);
             return true;
@@ -160,6 +193,7 @@ namespace osu.Framework.Threading
                 Bass.Free();
             }
 
+            freeAsio();
             freeWasapi();
 
             if (selectedDevice != deviceId && canSelectDevice(selectedDevice))
@@ -182,7 +216,9 @@ namespace osu.Framework.Threading
             }
         }
 
-        private bool attemptWasapiInitialisation()
+        private bool attemptWasapiInitialisation() => attemptWasapiInitialisation(exclusive: false);
+
+        private bool attemptWasapiInitialisation(bool exclusive)
         {
             if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
                 return false;
@@ -219,10 +255,10 @@ namespace osu.Framework.Threading
 
             // To keep things in a sane state let's only keep one device initialised via wasapi.
             freeWasapi();
-            return initWasapi(wasapiDevice);
+            return initWasapi(wasapiDevice, exclusive);
         }
 
-        private bool initWasapi(int wasapiDevice)
+        private bool initWasapi(int wasapiDevice, bool exclusive)
         {
             // This is intentionally initialised inline and stored to a field.
             // If we don't do this, it gets GC'd away.
@@ -238,11 +274,15 @@ namespace osu.Framework.Threading
                 if (notify == WasapiNotificationType.DefaultOutput)
                 {
                     freeWasapi();
-                    initWasapi(device);
+                    initWasapi(device, exclusive);
                 }
             });
 
-            bool initialised = BassWasapi.Init(wasapiDevice, Procedure: wasapiProcedure, Flags: WasapiInitFlags.EventDriven | WasapiInitFlags.AutoFormat, Buffer: 0f, Period: float.Epsilon);
+            var flags = WasapiInitFlags.EventDriven | WasapiInitFlags.AutoFormat;
+            if (exclusive)
+                flags |= (WasapiInitFlags)16; // WasapiInitFlags.Exclusive (not available in older bindings).
+
+            bool initialised = BassWasapi.Init(wasapiDevice, Procedure: wasapiProcedure, Flags: flags, Buffer: 0f, Period: float.Epsilon);
             Logger.Log($"Initialising BassWasapi for device {wasapiDevice}...{(initialised ? "success!" : "FAILED")}");
 
             if (!initialised)
@@ -265,6 +305,93 @@ namespace osu.Framework.Threading
             BassWasapi.Stop();
             BassWasapi.Free();
             globalMixerHandle.Value = null;
+        }
+
+        private bool initAsio(int asioDeviceIndex)
+        {
+            if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
+                return false;
+
+            Logger.Log($"Attempting BassAsio initialisation for device {asioDeviceIndex}");
+
+            freeAsio();
+
+            try
+            {
+                if (!BassAsio.Init(asioDeviceIndex))
+                {
+                    Logger.Log($"BassAsio.Init({asioDeviceIndex}) failed", level: LogLevel.Error);
+                    return false;
+                }
+            }
+            catch (DllNotFoundException e)
+            {
+                Logger.Log($"bassasio native library not found ({e.Message}). ASIO output will be unavailable.", level: LogLevel.Error);
+                return false;
+            }
+            catch (EntryPointNotFoundException e)
+            {
+                Logger.Log($"bassasio native library is incompatible ({e.Message}). ASIO output will be unavailable.", level: LogLevel.Error);
+                return false;
+            }
+
+            int sampleRate = (int)Math.Round(BassAsio.GetRate());
+            if (sampleRate <= 0)
+                sampleRate = 44100;
+
+            globalMixerHandle.Value = BassMix.CreateMixerStream(sampleRate, 2, BassFlags.MixerNonStop | BassFlags.Decode | BassFlags.Float);
+
+            // If we don't store the procedure, it gets GC'd away.
+            asioProcedure = (input, channel, buffer, length, user) =>
+            {
+                if (globalMixerHandle.Value == null)
+                    return 0;
+
+                return Bass.ChannelGetData(globalMixerHandle.Value!.Value, buffer, length);
+            };
+
+            // Enable stereo output (first two output channels) and feed the global mixer stream into it.
+            // We ignore additional channels for now.
+            BassAsio.ChannelEnable(false, 0, asioProcedure, IntPtr.Zero);
+            BassAsio.ChannelEnable(false, 1, asioProcedure, IntPtr.Zero);
+
+            BassAsio.GetInfo(out var info);
+
+            if (!BassAsio.Start(0))
+            {
+                Logger.Log("BassAsio.Start() failed", level: LogLevel.Error);
+                freeAsio();
+                return false;
+            }
+
+            Logger.Log($"BassAsio initialised (Rate: {BassAsio.GetRate()}, OutChans: {info.Outputs})");
+            return true;
+        }
+
+        private void freeAsio()
+        {
+            try
+            {
+                BassAsio.Stop();
+                BassAsio.Free();
+            }
+            catch
+            {
+            }
+
+            if (globalMixerHandle.Value != null)
+            {
+                Bass.StreamFree(globalMixerHandle.Value.Value);
+                globalMixerHandle.Value = null;
+            }
+        }
+
+        internal enum AudioThreadOutputMode
+        {
+            Default,
+            WasapiShared,
+            WasapiExclusive,
+            Asio,
         }
 
         #endregion

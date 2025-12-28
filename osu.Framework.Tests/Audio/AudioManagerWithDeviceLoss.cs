@@ -25,14 +25,14 @@ namespace osu.Framework.Tests.Audio
 
         private volatile bool simulateLoss;
 
-        protected override bool InitBass(int device)
+        protected override bool InitBass(int device, AudioOutputMode outputMode, int? asioDeviceIndex)
         {
             try
             {
                 if (simulateLoss)
-                    return device == Bass.NoSoundDevice && base.InitBass(device);
+                    return device == Bass.NoSoundDevice && base.InitBass(device, outputMode, asioDeviceIndex);
 
-                return base.InitBass(device);
+                return base.InitBass(device, outputMode, asioDeviceIndex);
             }
             finally
             {

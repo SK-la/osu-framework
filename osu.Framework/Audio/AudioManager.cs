@@ -13,6 +13,7 @@ using JetBrains.Annotations;
 using ManagedBass;
 using ManagedBass.Fx;
 using ManagedBass.Mix;
+using osu.Framework.Audio.Asio;
 using osu.Framework.Audio.Mixing;
 using osu.Framework.Audio.Mixing.Bass;
 using osu.Framework.Audio.Sample;
@@ -80,7 +81,7 @@ namespace osu.Framework.Audio
         /// Consumers should provide a "Default" audio device entry which sets <see cref="AudioDevice"/> to an empty string.
         /// </para>
         /// </remarks>
-        public IEnumerable<string> AudioDeviceNames => audioDeviceNames;
+        public IEnumerable<string> AudioDeviceNames => getAudioDeviceEntries();
 
         /// <summary>
         /// Is fired whenever a new audio device is discovered and provides its name.
@@ -153,7 +154,22 @@ namespace osu.Framework.Audio
 
         // Mutated by multiple threads, must be thread safe.
         private ImmutableArray<DeviceInfo> audioDevices = ImmutableArray<DeviceInfo>.Empty;
-        private ImmutableList<string> audioDeviceNames = ImmutableList<string>.Empty;
+        private ImmutableList<string> bassDeviceNames = ImmutableList<string>.Empty;
+
+        private const string type_bass = "BASS";
+        private const string type_wasapi_shared = "WASAPI Shared";
+        private const string type_wasapi_exclusive = "WASAPI Exclusive";
+        private const string type_asio = "ASIO";
+
+        private bool syncingSelection;
+
+        protected enum AudioOutputMode
+        {
+            Default,
+            WasapiShared,
+            WasapiExclusive,
+            Asio,
+        }
 
         private Scheduler scheduler => thread.Scheduler;
 
@@ -196,7 +212,15 @@ namespace osu.Framework.Audio
             }
 
             AudioDevice.ValueChanged += _ => scheduler.AddOnce(initCurrentDevice);
-            UseExperimentalWasapi.ValueChanged += _ => scheduler.AddOnce(initCurrentDevice);
+            UseExperimentalWasapi.ValueChanged += _ => scheduler.AddOnce(() =>
+            {
+                // Keep checkbox meaningful by mapping it onto the dropdown selection when possible.
+                bool selectionChanged = syncSelectionFromExperimentalFlag();
+
+                // If selection didn't change (eg. Default), we still need to reinitialise.
+                if (!selectionChanged)
+                    initCurrentDevice();
+            });
             // initCurrentDevice not required for changes to `GlobalMixerHandle` as it is only changed when experimental wasapi is toggled (handled above).
             GlobalMixerHandle.ValueChanged += handle => usingGlobalMixer.Value = handle.NewValue.HasValue;
 
@@ -267,8 +291,7 @@ namespace osu.Framework.Audio
         /// Channels removed from this <see cref="AudioMixer"/> fall back to the global <see cref="SampleMixer"/>.
         /// </remarks>
         /// <param name="identifier">An identifier displayed on the audio mixer visualiser.</param>
-        public AudioMixer CreateAudioMixer(string identifier = default) =>
-            createAudioMixer(SampleMixer, !string.IsNullOrEmpty(identifier) ? identifier : $"user #{Interlocked.Increment(ref userMixerID)}");
+        public AudioMixer CreateAudioMixer(string identifier = default) => createAudioMixer(SampleMixer, !string.IsNullOrEmpty(identifier) ? identifier : $"user #{Interlocked.Increment(ref userMixerID)}");
 
         private AudioMixer createAudioMixer(AudioMixer fallbackMixer, string identifier)
         {
@@ -332,24 +355,61 @@ namespace osu.Framework.Audio
         /// </summary>
         private void initCurrentDevice()
         {
-            string deviceName = AudioDevice.Value;
+            var (mode, deviceName, asioIndex) = parseSelection(AudioDevice.Value);
+
+            // keep legacy setting and dropdown selection in sync.
+            if (!syncingSelection)
+            {
+                syncingSelection = true;
+
+                try
+                {
+                    switch (mode)
+                    {
+                        case AudioOutputMode.WasapiShared:
+                            UseExperimentalWasapi.Value = true;
+                            break;
+
+                        case AudioOutputMode.Default:
+                        case AudioOutputMode.WasapiExclusive:
+                        case AudioOutputMode.Asio:
+                            // Exclusive/ASIO are separate modes; keep the experimental flag off to avoid confusion.
+                            UseExperimentalWasapi.Value = false;
+                            break;
+                    }
+                }
+                finally
+                {
+                    syncingSelection = false;
+                }
+            }
 
             // try using the specified device
-            int deviceIndex = audioDeviceNames.FindIndex(d => d == deviceName);
-            if (deviceIndex >= 0 && trySetDevice(BASS_INTERNAL_DEVICE_COUNT + deviceIndex)) return;
+            if (mode == AudioOutputMode.Asio)
+            {
+                // ASIO output still requires BASS to be initialised, but output is performed by BassAsio.
+                // Use the OS default BASS device as a fallback initialisation target.
+                if (trySetDevice(bass_default_device, mode, asioIndex)) return;
+            }
+            else
+            {
+                // try using the specified device
+                int deviceIndex = bassDeviceNames.FindIndex(d => d == deviceName);
+                if (deviceIndex >= 0 && trySetDevice(BASS_INTERNAL_DEVICE_COUNT + deviceIndex, mode, asioIndex)) return;
+            }
 
             // try using the system default if there is any device present.
             // mobiles are an exception as the built-in speakers may not be provided as an audio device name,
             // but they are still provided by BASS under the internal device name "Default".
-            if ((audioDeviceNames.Count > 0 || RuntimeInfo.IsMobile) && trySetDevice(bass_default_device)) return;
+            if ((bassDeviceNames.Count > 0 || RuntimeInfo.IsMobile) && trySetDevice(bass_default_device, mode, asioIndex)) return;
 
             // no audio devices can be used, so try using Bass-provided "No sound" device as last resort.
-            trySetDevice(Bass.NoSoundDevice);
+            trySetDevice(Bass.NoSoundDevice, AudioOutputMode.Default, null);
 
             // we're boned. even "No sound" device won't initialise.
             return;
 
-            bool trySetDevice(int deviceId)
+            bool trySetDevice(int deviceId, AudioOutputMode outputMode, int? asioDeviceIndex)
             {
                 var device = audioDevices.ElementAtOrDefault(deviceId);
 
@@ -362,7 +422,7 @@ namespace osu.Framework.Audio
                     return false;
 
                 // initialize new device
-                if (!InitBass(deviceId))
+                if (!InitBass(deviceId, outputMode, asioDeviceIndex))
                     return false;
 
                 //we have successfully initialised a new device.
@@ -372,12 +432,53 @@ namespace osu.Framework.Audio
             }
         }
 
+        private bool syncSelectionFromExperimentalFlag()
+        {
+            if (syncingSelection)
+                return false;
+
+            // Do not attempt to remap explicit exclusive/ASIO selections.
+            if (tryParseSuffixed(AudioDevice.Value, type_wasapi_exclusive, out _) || tryParseSuffixed(AudioDevice.Value, type_asio, out _))
+                return false;
+
+            if (string.IsNullOrEmpty(AudioDevice.Value))
+                return false;
+
+            string baseName;
+
+            if (tryParseSuffixed(AudioDevice.Value, type_bass, out string parsed))
+                baseName = parsed;
+            else if (tryParseSuffixed(AudioDevice.Value, type_wasapi_shared, out parsed))
+                baseName = parsed;
+            else
+                // Legacy un-suffixed device name.
+                baseName = AudioDevice.Value;
+
+            string desired = formatEntry(baseName, UseExperimentalWasapi.Value ? type_wasapi_shared : type_bass);
+            if (AudioDevice.Value == desired)
+                return false;
+
+            syncingSelection = true;
+
+            try
+            {
+                AudioDevice.Value = desired;
+                return true;
+            }
+            finally
+            {
+                syncingSelection = false;
+            }
+        }
+
         /// <summary>
         /// This method calls <see cref="Bass.Init(int, int, DeviceInitFlags, IntPtr, IntPtr)"/>.
         /// It can be overridden for unit testing.
         /// </summary>
         /// <param name="device">The device to initialise.</param>
-        protected virtual bool InitBass(int device)
+        /// <param name="outputMode">The output mode to use for playback.</param>
+        /// <param name="asioDeviceIndex">When <paramref name="outputMode"/> is ASIO, the selected ASIO device index.</param>
+        protected virtual bool InitBass(int device, AudioOutputMode outputMode, int? asioDeviceIndex)
         {
             // this likely doesn't help us but also doesn't seem to cause any issues or any cpu increase.
             Bass.UpdatePeriod = 5;
@@ -402,25 +503,15 @@ namespace osu.Framework.Audio
             // - This disables support for ItunSMPB tag parsing to match previous expectations.
             // - This also disables a change which assumes a 529 sample (2116 byte in stereo 16-bit) delay if the MP3 file doesn't specify one.
             //   (That was added in Bass for more consistent results across platforms and standard/mp3-free BASS versions, because OSX/iOS's MP3 decoder always removes 529 samples)
-            Bass.Configure((ManagedBass.Configuration)68, 1);
+            // Bass.Configure((ManagedBass.Configuration)68, 1);
 
             // Disable BASS_CONFIG_DEV_TIMEOUT flag to keep BASS audio output from pausing on device processing timeout.
             // See https://www.un4seen.com/forum/?topic=19601 for more information.
             Bass.Configure((ManagedBass.Configuration)70, false);
 
-            bool success = attemptInit();
-
-            if (success || !UseExperimentalWasapi.Value)
-                return success;
-
-            // in the case we're using experimental WASAPI, give a second chance of initialisation by forcefully disabling it.
-            Logger.Log($"BASS device {device} failed to initialise with experimental WASAPI, disabling", level: LogLevel.Error);
-            UseExperimentalWasapi.Value = false;
-            return attemptInit();
-
             bool attemptInit()
             {
-                bool innerSuccess = thread.InitDevice(device, UseExperimentalWasapi.Value);
+                bool innerSuccess = thread.InitDevice(device, toThreadOutputMode(outputMode), asioDeviceIndex);
                 bool alreadyInitialised = Bass.LastError == Errors.Already;
 
                 if (alreadyInitialised)
@@ -449,6 +540,26 @@ namespace osu.Framework.Audio
 
                 return true;
             }
+
+            return attemptInit();
+        }
+
+        private static AudioThread.AudioThreadOutputMode toThreadOutputMode(AudioOutputMode mode)
+        {
+            switch (mode)
+            {
+                case AudioOutputMode.WasapiShared:
+                    return AudioThread.AudioThreadOutputMode.WasapiShared;
+
+                case AudioOutputMode.WasapiExclusive:
+                    return AudioThread.AudioThreadOutputMode.WasapiExclusive;
+
+                case AudioOutputMode.Asio:
+                    return AudioThread.AudioThreadOutputMode.Asio;
+
+                default:
+                    return AudioThread.AudioThreadOutputMode.Default;
+            }
         }
 
         private void syncAudioDevices()
@@ -458,8 +569,8 @@ namespace osu.Framework.Audio
             // Bass should always be providing "No sound" and "Default" device.
             Trace.Assert(audioDevices.Length >= BASS_INTERNAL_DEVICE_COUNT, "Bass did not provide any audio devices.");
 
-            var oldDeviceNames = audioDeviceNames;
-            var newDeviceNames = audioDeviceNames = audioDevices.Skip(BASS_INTERNAL_DEVICE_COUNT).Where(d => d.IsEnabled).Select(d => d.Name).ToImmutableList();
+            var oldDeviceNames = bassDeviceNames;
+            var newDeviceNames = bassDeviceNames = audioDevices.Skip(BASS_INTERNAL_DEVICE_COUNT).Where(d => d.IsEnabled).Select(d => d.Name).ToImmutableList();
 
             scheduler.Add(() =>
             {
@@ -483,6 +594,95 @@ namespace osu.Framework.Audio
                         OnLostDevice?.Invoke(d);
                 });
             }
+        }
+
+        private IEnumerable<string> getAudioDeviceEntries()
+        {
+            var entries = new List<string>();
+
+            // Base BASS devices.
+            entries.AddRange(bassDeviceNames.Select(d => formatEntry(d, type_bass)));
+
+            if (RuntimeInfo.OS == RuntimeInfo.Platform.Windows)
+            {
+                // WASAPI variants for each BASS device.
+                entries.AddRange(bassDeviceNames.Select(d => formatEntry(d, type_wasapi_shared)));
+                entries.AddRange(bassDeviceNames.Select(d => formatEntry(d, type_wasapi_exclusive)));
+
+                // ASIO drivers.
+                try
+                {
+                    foreach (var device in BassAsio.EnumerateDevices())
+                        entries.Add(formatEntry(device.Name, type_asio));
+                }
+                catch
+                {
+                    // ASIO is optional and may not be available.
+                }
+            }
+
+            return entries;
+        }
+
+        private static string formatEntry(string name, string type) => $"{name} ({type})";
+
+        private (AudioOutputMode mode, string deviceName, int? asioDeviceIndex) parseSelection(string selection)
+        {
+            // Default device.
+            if (string.IsNullOrEmpty(selection))
+            {
+                return (UseExperimentalWasapi.Value && RuntimeInfo.OS == RuntimeInfo.Platform.Windows
+                    ? AudioOutputMode.WasapiShared
+                    : AudioOutputMode.Default, string.Empty, null);
+            }
+
+            if (tryParseSuffixed(selection, type_bass, out string name))
+                return (AudioOutputMode.Default, name, null);
+
+            if (tryParseSuffixed(selection, type_wasapi_shared, out name))
+                return (AudioOutputMode.WasapiShared, name, null);
+
+            if (tryParseSuffixed(selection, type_wasapi_exclusive, out name))
+                return (AudioOutputMode.WasapiExclusive, name, null);
+
+            if (tryParseSuffixed(selection, type_asio, out name))
+            {
+                int? index = null;
+
+                if (RuntimeInfo.OS == RuntimeInfo.Platform.Windows)
+                {
+                    try
+                    {
+                        if (BassAsio.TryFindDeviceIndexByName(name, out int found))
+                            index = found;
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                return (AudioOutputMode.Asio, name, index);
+            }
+
+            // Legacy value (raw BASS device name). Keep old behaviour: the experimental flag decides shared WASAPI.
+            if (UseExperimentalWasapi.Value && RuntimeInfo.OS == RuntimeInfo.Platform.Windows)
+                return (AudioOutputMode.WasapiShared, selection, null);
+
+            return (AudioOutputMode.Default, selection, null);
+        }
+
+        private static bool tryParseSuffixed(string value, string type, out string baseName)
+        {
+            string suffix = $" ({type})";
+
+            if (value.EndsWith(suffix, StringComparison.Ordinal))
+            {
+                baseName = value[..^suffix.Length];
+                return true;
+            }
+
+            baseName = string.Empty;
+            return false;
         }
 
         /// <summary>
@@ -535,7 +735,13 @@ namespace osu.Framework.Audio
         protected virtual bool IsCurrentDeviceValid()
         {
             var device = audioDevices.ElementAtOrDefault(Bass.CurrentDevice);
-            bool isFallback = string.IsNullOrEmpty(AudioDevice.Value) ? !device.IsDefault : device.Name != AudioDevice.Value;
+            var (mode, selectedName, _) = parseSelection(AudioDevice.Value);
+
+            // ASIO output selection does not map to a BASS device name; just ensure we're initialised.
+            if (mode == AudioOutputMode.Asio)
+                return device.IsEnabled && device.IsInitialized;
+
+            bool isFallback = string.IsNullOrEmpty(selectedName) ? !device.IsDefault : device.Name != selectedName;
             return device.IsEnabled && device.IsInitialized && !isFallback;
         }
 
