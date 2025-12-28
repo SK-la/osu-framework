@@ -163,6 +163,22 @@ namespace osu.Framework.Audio
 
         private bool syncingSelection;
 
+        private void setUserBindableValueLeaseSafe<T>(Bindable<T> bindable, T newValue)
+        {
+            if (EqualityComparer<T>.Default.Equals(bindable.Value, newValue))
+                return;
+
+            // These bindables are bound into UI (osu!) and can trigger transforms/animations.
+            // Ensure mutations happen on the update thread (Game.Scheduler) to avoid cross-thread Drawable mutations.
+            if (ThreadSafety.IsUpdateThread || EventScheduler == null)
+            {
+                setBindableValueLeaseSafe(bindable, newValue);
+                return;
+            }
+
+            eventScheduler.Add(() => setBindableValueLeaseSafe(bindable, newValue));
+        }
+
         private static void setBindableValueLeaseSafe<T>(Bindable<T> bindable, T newValue)
         {
             if (EqualityComparer<T>.Default.Equals(bindable.Value, newValue))
@@ -234,10 +250,46 @@ namespace osu.Framework.Audio
 
                 scheduler.AddOnce(initCurrentDevice);
             };
-            UseExperimentalWasapi.ValueChanged += _ =>
+            UseExperimentalWasapi.ValueChanged += e =>
             {
                 if (syncingSelection)
                     return;
+
+                // Option (1): when experimental audio is enabled, the dropdown should not expose ASIO/Exclusive entries.
+                // Coerce any typed selection back to an allowed value.
+                if (UseExperimentalWasapi.Value && RuntimeInfo.OS == RuntimeInfo.Platform.Windows)
+                {
+                    string selection = AudioDevice.Value;
+
+                    if (tryParseSuffixed(selection, type_wasapi_exclusive, out string baseName))
+                    {
+                        syncingSelection = true;
+
+                        try
+                        {
+                            setBindableValueLeaseSafe(AudioDevice, baseName);
+                        }
+                        finally
+                        {
+                            syncingSelection = false;
+                        }
+                    }
+                    else if (tryParseSuffixed(selection, type_asio, out _))
+                    {
+                        syncingSelection = true;
+
+                        try
+                        {
+                            // An ASIO selection is incompatible with experimental(shared) mode.
+                            // Fall back to OS default.
+                            setBindableValueLeaseSafe(AudioDevice, string.Empty);
+                        }
+                        finally
+                        {
+                            syncingSelection = false;
+                        }
+                    }
+                }
 
                 // Shared-mode WASAPI is still controlled by this checkbox.
                 // Keep dropdown values as the raw BASS device name to preserve historical UX.
@@ -377,6 +429,7 @@ namespace osu.Framework.Audio
         /// </summary>
         private void initCurrentDevice()
         {
+            // Note: normalisation may write back to bindables; ensure those writes are update-thread-safe.
             normaliseLegacySelection();
 
             var (mode, deviceName, asioIndex) = parseSelection(AudioDevice.Value);
@@ -391,11 +444,10 @@ namespace osu.Framework.Audio
 
                 try
                 {
-                    // Keep legacy checkbox meaningful.
-                    // - Shared WASAPI is only controlled by UseExperimentalWasapi.
-                    // - Selecting Exclusive/ASIO should turn the checkbox off to avoid confusion.
-                    if (mode == AudioOutputMode.WasapiExclusive || mode == AudioOutputMode.Asio)
-                        setBindableValueLeaseSafe(UseExperimentalWasapi, false);
+                    // Option (1): experimental(shared) mode hides Exclusive/ASIO entries.
+                    // If we still see these modes (eg. from config), force experimental off to keep behaviour consistent.
+                    if (UseExperimentalWasapi.Value && (mode == AudioOutputMode.WasapiExclusive || mode == AudioOutputMode.Asio))
+                        setUserBindableValueLeaseSafe(UseExperimentalWasapi, false);
                 }
                 finally
                 {
@@ -476,9 +528,9 @@ namespace osu.Framework.Audio
                     // Ensure "Default" means OS default device.
                     // Preserve shared-WASAPI checkbox unless an exclusive/ASIO entry was explicitly selected.
                     if (isTypedSelection || mode == AudioOutputMode.WasapiExclusive || mode == AudioOutputMode.Asio)
-                        setBindableValueLeaseSafe(UseExperimentalWasapi, false);
+                        setUserBindableValueLeaseSafe(UseExperimentalWasapi, false);
 
-                    setBindableValueLeaseSafe(AudioDevice, string.Empty);
+                    setUserBindableValueLeaseSafe(AudioDevice, string.Empty);
                 }
                 finally
                 {
@@ -504,7 +556,7 @@ namespace osu.Framework.Audio
 
                 try
                 {
-                    setBindableValueLeaseSafe(AudioDevice, baseName);
+                    setUserBindableValueLeaseSafe(AudioDevice, baseName);
                 }
                 finally
                 {
@@ -520,8 +572,8 @@ namespace osu.Framework.Audio
 
                 try
                 {
-                    setBindableValueLeaseSafe(AudioDevice, baseName);
-                    setBindableValueLeaseSafe(UseExperimentalWasapi, true);
+                    setUserBindableValueLeaseSafe(AudioDevice, baseName);
+                    setUserBindableValueLeaseSafe(UseExperimentalWasapi, true);
                 }
                 finally
                 {
@@ -678,6 +730,10 @@ namespace osu.Framework.Audio
 
             if (RuntimeInfo.OS == RuntimeInfo.Platform.Windows)
             {
+                // Option (1): when experimental(shared) audio is enabled, do not expose Exclusive/ASIO entries.
+                if (UseExperimentalWasapi.Value)
+                    return entries;
+
                 // Only append extra entries; shared WASAPI remains controlled by the checkbox.
                 entries.AddRange(bassDeviceNames.Select(d => formatEntry(d, type_wasapi_exclusive)));
 
@@ -714,6 +770,17 @@ namespace osu.Framework.Audio
                 return (UseExperimentalWasapi.Value && RuntimeInfo.OS == RuntimeInfo.Platform.Windows
                     ? AudioOutputMode.WasapiShared
                     : AudioOutputMode.Default, string.Empty, null);
+            }
+
+            // Option (1): if experimental(shared) is enabled, typed entries should be treated as legacy/config leftovers.
+            // Coerce them back to shared mode.
+            if (UseExperimentalWasapi.Value && RuntimeInfo.OS == RuntimeInfo.Platform.Windows)
+            {
+                if (tryParseSuffixed(selection, type_wasapi_exclusive, out string baseName))
+                    return (AudioOutputMode.WasapiShared, baseName, null);
+
+                if (tryParseSuffixed(selection, type_asio, out _))
+                    return (AudioOutputMode.WasapiShared, string.Empty, null);
             }
 
             if (tryParseSuffixed(selection, type_wasapi_exclusive, out string name))

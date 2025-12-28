@@ -36,6 +36,10 @@ namespace osu.Framework.Threading
         public AudioThread()
             : base(name: "Audio")
         {
+            // Ensure this AudioThread instance is always reachable from native WASAPI callbacks.
+            wasapiUserHandle = GCHandle.Alloc(this, GCHandleType.Normal);
+            wasapiUserPtr = GCHandle.ToIntPtr(wasapiUserHandle);
+
             OnNewFrame += onNewFrame;
             PreloadBass();
         }
@@ -129,14 +133,64 @@ namespace osu.Framework.Threading
             // See https://github.com/ppy/osu-framework/pull/3378 for further discussion.
             foreach (int d in initialised_devices.ToArray())
                 FreeDevice(d);
+
+            if (wasapiUserHandle.IsAllocated)
+                wasapiUserHandle.Free();
         }
 
         #region BASS Initialisation
 
         // TODO: All this bass init stuff should probably not be in this class.
 
-        private WasapiProcedure? wasapiProcedure;
-        private WasapiNotifyProcedure? wasapiNotifyProcedure;
+        // WASAPI callbacks must never be allowed to be GC'd while native code may still call into them.
+        // Use static delegates with a stable user pointer back to this thread instance.
+        private static readonly WasapiProcedure wasapiProcedureStatic = (buffer, length, user) =>
+        {
+            var thread = getWasapiOwner(user);
+            if (thread == null)
+                return 0;
+
+            int? mixer = thread.globalMixerHandle.Value;
+            if (mixer == null)
+                return 0;
+
+            return Bass.ChannelGetData(mixer.Value, buffer, length);
+        };
+
+        private static readonly WasapiNotifyProcedure wasapiNotifyProcedureStatic = (notify, device, user) =>
+        {
+            var thread = getWasapiOwner(user);
+            if (thread == null)
+                return;
+
+            thread.Scheduler.Add(() =>
+            {
+                if (notify == WasapiNotificationType.DefaultOutput)
+                {
+                    thread.freeWasapi();
+                    thread.initWasapi(device, thread.wasapiExclusiveActive);
+                }
+            });
+        };
+
+        private static AudioThread? getWasapiOwner(IntPtr user)
+        {
+            if (user == IntPtr.Zero)
+                return null;
+
+            try
+            {
+                return (AudioThread?)GCHandle.FromIntPtr(user).Target;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private readonly GCHandle wasapiUserHandle;
+        private readonly IntPtr wasapiUserPtr;
+        private bool wasapiExclusiveActive;
 
         private BassAsio.AsioProcedure asioProcedure = null!;
 
@@ -151,8 +205,16 @@ namespace osu.Framework.Threading
             Debug.Assert(ThreadSafety.IsAudioThread);
             Trace.Assert(deviceId != -1); // The real device ID should always be used, as the -1 device has special cases which are hard to work with.
 
+            // Important: stop any existing output first.
+            // In particular, WASAPI exclusive can hold the device such that a subsequent Bass.Init() returns Busy.
+            // If we can't initialise BASS, we also won't get a chance to clean up the previous output mode.
+            freeAsio();
+            freeWasapi();
+
             // Try to initialise the device, or request a re-initialise.
-            if (!Bass.Init(deviceId, Flags: (DeviceInitFlags)128)) // 128 == BASS_DEVICE_REINIT
+            // 128 == BASS_DEVICE_REINIT. Only use it when the device is already initialised.
+            var initFlags = initialised_devices.Contains(deviceId) ? (DeviceInitFlags)128 : 0;
+            if (!Bass.Init(deviceId, Flags: initFlags))
             {
                 Logger.Log($"BASS.Init({deviceId}) failed: {Bass.LastError}", name: "audio", level: LogLevel.Error);
                 return false;
@@ -161,14 +223,10 @@ namespace osu.Framework.Threading
             switch (outputMode)
             {
                 case AudioThreadOutputMode.Default:
-                    freeAsio();
-                    freeWasapi();
-
                     break;
 
                 case AudioThreadOutputMode.WasapiShared:
-                    freeAsio();
-                    if (!attemptWasapiInitialisation(exclusive: false))
+                    if (!attemptWasapiInitialisation(deviceId, exclusive: false))
                     {
                         Logger.Log($"BassWasapi initialisation failed (shared mode). BASS error: {Bass.LastError}", name: "audio", level: LogLevel.Error);
                         return false;
@@ -177,8 +235,7 @@ namespace osu.Framework.Threading
                     break;
 
                 case AudioThreadOutputMode.WasapiExclusive:
-                    freeAsio();
-                    if (!attemptWasapiInitialisation(exclusive: true))
+                    if (!attemptWasapiInitialisation(deviceId, exclusive: true))
                     {
                         Logger.Log($"BassWasapi initialisation failed (exclusive mode). BASS error: {Bass.LastError}", name: "audio", level: LogLevel.Error);
                         return false;
@@ -187,8 +244,6 @@ namespace osu.Framework.Threading
                     break;
 
                 case AudioThreadOutputMode.Asio:
-                    freeWasapi();
-
                     if (asioDeviceIndex == null)
                     {
                         Logger.Log("ASIO output mode selected but no ASIO device index was provided.", name: "audio", level: LogLevel.Error);
@@ -300,16 +355,16 @@ namespace osu.Framework.Threading
             throw new DllNotFoundException($"bassasio.dll was not found in expected locations. Checked: {string.Join("; ", candidatePaths)}");
         }
 
-        private bool attemptWasapiInitialisation() => attemptWasapiInitialisation(exclusive: false);
+        private bool attemptWasapiInitialisation() => attemptWasapiInitialisation(Bass.CurrentDevice, exclusive: false);
 
-        private bool attemptWasapiInitialisation(bool exclusive)
+        private bool attemptWasapiInitialisation(int bassDeviceId, bool exclusive)
         {
             if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
                 return false;
 
             try
             {
-                return attemptWasapiInitialisationInternal(exclusive);
+                return attemptWasapiInitialisationInternal(bassDeviceId, exclusive);
             }
             catch (DllNotFoundException e)
             {
@@ -328,7 +383,7 @@ namespace osu.Framework.Threading
             }
         }
 
-        private bool attemptWasapiInitialisationInternal(bool exclusive)
+        private bool attemptWasapiInitialisationInternal(int bassDeviceId, bool exclusive)
         {
             Logger.Log($"Attempting local BassWasapi initialisation (exclusive: {exclusive})", name: "audio", level: LogLevel.Verbose);
 
@@ -338,27 +393,81 @@ namespace osu.Framework.Threading
             // Each device is listed multiple times with each supported channel/frequency pair.
             //
             // Working backwards to find the correct device is how bass does things internally (see BassWasapi.GetBassDevice).
-            if (Bass.CurrentDevice > 0)
+            if (bassDeviceId > 0)
             {
-                string driver = Bass.GetDeviceInfo(Bass.CurrentDevice).Driver;
+                string driver = Bass.GetDeviceInfo(bassDeviceId).Driver;
 
                 if (!string.IsNullOrEmpty(driver))
                 {
-                    // In the normal execution case, BassWasapi.GetDeviceInfo will return false as soon as we reach the end of devices.
-                    // This while condition is just a safety to avoid looping forever.
-                    // It's intentionally quite high because if a user has many audio devices, this list can get long.
+                    var candidates = new List<(int index, int freq, int chans)>();
+
+                    // WASAPI device indices don't match normal BASS devices.
+                    // Each device is listed multiple times with each supported channel/frequency pair.
                     //
-                    // Retrieving device info here isn't free. In the future we may want to investigate a better method.
-                    while (wasapiDevice < 16384)
+                    // Working backwards to find the correct device is how bass does things internally (see BassWasapi.GetBassDevice).
+                    // We replicate this by scanning the full list and remembering the last match.
+                    for (int i = 0; i < 16384; i++)
                     {
-                        if (!BassWasapi.GetDeviceInfo(++wasapiDevice, out WasapiDeviceInfo info))
+                        if (!BassWasapi.GetDeviceInfo(i, out WasapiDeviceInfo info))
                             break;
 
-                        if (info.ID == driver)
-                            break;
+                        // Only consider output devices (not input/loopback), since we're initialising audio output.
+                        if (info.ID == driver && info.IsEnabled && !info.IsInput && !info.IsLoopback)
+                            candidates.Add((i, info.MixFrequency, info.MixChannels));
+                    }
+
+                    if (candidates.Count > 0)
+                    {
+                        // Prefer common stereo formats.
+                        var best = candidates
+                                   .OrderBy(c => c.chans == 2 ? 0 : 1)
+                                   .ThenBy(c => Math.Abs(c.freq - 48000))
+                                   .ThenBy(c => Math.Abs(c.freq - 44100))
+                                   .First();
+
+                        wasapiDevice = best.index;
+                        Logger.Log($"Mapped BASS device {bassDeviceId} (driver '{driver}') to WASAPI device {wasapiDevice} (mix: {best.freq}Hz/{best.chans}ch).", name: "audio", level: LogLevel.Verbose);
+
+                        // In exclusive mode, the chosen (freq/chans) pair matters. If the preferred candidate fails,
+                        // we will retry other candidates below.
+                        if (exclusive)
+                        {
+                            foreach (var candidate in candidates
+                                                     .OrderBy(c => c.chans == 2 ? 0 : 1)
+                                                     .ThenBy(c => Math.Abs(c.freq - 48000))
+                                                     .ThenBy(c => Math.Abs(c.freq - 44100)))
+                            {
+                                freeWasapi();
+
+                                if (initWasapi(candidate.index, exclusive))
+                                    return true;
+                            }
+
+                            Logger.Log($"All WASAPI exclusive format candidates failed for BASS device {bassDeviceId} (driver '{driver}').", name: "audio", level: LogLevel.Verbose);
+                            return false;
+                        }
+                    }
+                    else
+                    {
+                        // If the user selected a specific non-default device, do not fall back to system default.
+                        // Fallback would likely be busy (e.g. browser playing on default), and would mask the real issue.
+                        if (bassDeviceId != Bass.DefaultDevice)
+                        {
+                            Logger.Log($"Could not map BASS device {bassDeviceId} (driver '{driver}') to a WASAPI output device; refusing to fall back to default (-1).", name: "audio", level: LogLevel.Verbose);
+                            return false;
+                        }
+
+                        Logger.Log($"Could not map BASS default device (driver '{driver}') to a WASAPI output device; falling back to default WASAPI device (-1).", name: "audio", level: LogLevel.Verbose);
                     }
                 }
+                else
+                {
+                    Logger.Log($"BASS device {bassDeviceId} did not provide a driver identifier; falling back to default WASAPI device (-1).", name: "audio", level: LogLevel.Verbose);
+                }
             }
+
+            if (wasapiDevice == -1)
+                Logger.Log("Using default WASAPI device (-1).", name: "audio", level: LogLevel.Verbose);
 
             // To keep things in a sane state let's only keep one device initialised via wasapi.
             freeWasapi();
@@ -369,27 +478,35 @@ namespace osu.Framework.Threading
         {
             try
             {
-                // This is intentionally initialised inline and stored to a field.
-                // If we don't do this, it gets GC'd away.
-                wasapiProcedure = (buffer, length, _) =>
-                {
-                    if (globalMixerHandle.Value == null)
-                        return 0;
+                wasapiExclusiveActive = exclusive;
 
-                    return Bass.ChannelGetData(globalMixerHandle.Value!.Value, buffer, length);
-                };
-                wasapiNotifyProcedure = (notify, device, _) => Scheduler.Add(() =>
-                {
-                    if (notify == WasapiNotificationType.DefaultOutput)
-                    {
-                        freeWasapi();
-                        initWasapi(device, exclusive);
-                    }
-                });
+                // BASSWASAPI flags:
+                // - 0x1  = EXCLUSIVE
+                // - 0x10 = EVENT (event-driven)
+                // ManagedBass bindings used here do not currently expose Exclusive, so we use the documented value.
+                const WasapiInitFlags exclusiveFlag = (WasapiInitFlags)0x1;
 
-                var flags = WasapiInitFlags.EventDriven | WasapiInitFlags.AutoFormat;
+                int requestedFrequency = 0;
+                int requestedChannels = 0;
+
+                // Shared mode can use event-driven callbacks and auto-format.
+                // Exclusive mode should use an explicit supported format (freq/chans) from the chosen WASAPI entry.
+                var flags = (WasapiInitFlags)0;
+
                 if (exclusive)
-                    flags |= (WasapiInitFlags)16; // WasapiInitFlags.Exclusive (not available in older bindings).
+                {
+                    flags |= exclusiveFlag;
+
+                    if (wasapiDevice >= 0 && BassWasapi.GetDeviceInfo(wasapiDevice, out WasapiDeviceInfo selectedInfo))
+                    {
+                        requestedFrequency = selectedInfo.MixFrequency;
+                        requestedChannels = selectedInfo.MixChannels;
+                    }
+                }
+                else
+                {
+                    flags |= WasapiInitFlags.EventDriven | WasapiInitFlags.AutoFormat;
+                }
 
                 // Important: in exclusive mode, the underlying implementation may not support event-driven callbacks
                 // and can fall back to polling. Using a near-zero period (float.Epsilon) can then cause a busy-loop,
@@ -397,17 +514,18 @@ namespace osu.Framework.Threading
                 float bufferSeconds = exclusive ? 0.05f : 0f;
                 float periodSeconds = exclusive ? 0.01f : float.Epsilon;
 
-                bool initialised = BassWasapi.Init(wasapiDevice, Procedure: wasapiProcedure, Flags: flags, Buffer: bufferSeconds, Period: periodSeconds);
+                bool initialised = BassWasapi.Init(wasapiDevice, Frequency: requestedFrequency, Channels: requestedChannels, Procedure: wasapiProcedureStatic, Flags: flags, Buffer: bufferSeconds, Period: periodSeconds, User: wasapiUserPtr);
                 Logger.Log($"Initialising BassWasapi for device {wasapiDevice} (exclusive: {exclusive}, buffer: {bufferSeconds:0.###}s, period: {periodSeconds:0.###}s)...{(initialised ? "success!" : "FAILED")}", name: "audio", level: LogLevel.Verbose);
 
                 if (!initialised)
                     return false;
 
                 BassWasapi.GetInfo(out var wasapiInfo);
+                Logger.Log($"WASAPI info: Freq={wasapiInfo.Frequency}, Chans={wasapiInfo.Channels}, Format={wasapiInfo.Format}", name: "audio", level: LogLevel.Verbose);
                 globalMixerHandle.Value = BassMix.CreateMixerStream(wasapiInfo.Frequency, wasapiInfo.Channels, BassFlags.MixerNonStop | BassFlags.Decode | BassFlags.Float);
                 BassWasapi.Start();
 
-                BassWasapi.SetNotify(wasapiNotifyProcedure);
+                BassWasapi.SetNotify(wasapiNotifyProcedureStatic, wasapiUserPtr);
                 return true;
             }
             catch (DllNotFoundException e)
@@ -432,14 +550,18 @@ namespace osu.Framework.Threading
 
         private void freeWasapi()
         {
-            if (globalMixerHandle.Value == null) return;
+            int? mixerToFree = globalMixerHandle.Value;
 
             try
             {
                 // The mixer probably doesn't need to be recycled. Just keeping things sane for now.
-                Bass.StreamFree(globalMixerHandle.Value.Value);
+                // Stop WASAPI first to prevent callbacks from accessing disposed resources.
+                BassWasapi.SetNotify(null, IntPtr.Zero);
                 BassWasapi.Stop();
                 BassWasapi.Free();
+
+                if (mixerToFree != null)
+                    Bass.StreamFree(mixerToFree.Value);
             }
             catch (DllNotFoundException e)
             {
@@ -480,7 +602,8 @@ namespace osu.Framework.Threading
             {
                 if (!BassAsio.Init(asioDeviceIndex))
                 {
-                    Logger.Log($"BassAsio.Init({asioDeviceIndex}) failed (code {BassAsio.ErrorGetCode()})", name: "audio", level: LogLevel.Error);
+                    int code = BassAsio.ErrorGetCode();
+                    Logger.Log($"BassAsio.Init({asioDeviceIndex}) failed (code {code} / {(Errors)code}). This usually means the driver is unavailable/busy, incompatible, or failed to open.", name: "audio", level: LogLevel.Error);
                     return false;
                 }
             }
