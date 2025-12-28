@@ -109,7 +109,7 @@ namespace osu.Framework.Audio
         /// Is fired whenever an ASIO device is successfully initialized with a specific sample rate.
         /// Provides the actual sample rate that was used.
         /// </summary>
-        public Action<double?>? OnAsioDeviceInitialized;
+        public Action<double>? OnAsioDeviceInitialized;
 
         /// <summary>
         /// The preferred audio device we should use. A value of
