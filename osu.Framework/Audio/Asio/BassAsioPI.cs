@@ -59,7 +59,7 @@ namespace osu.Framework.Audio.Asio
         }
     }
 
-    internal static class BassAsio
+    internal static class BassAsioPI
     {
         private const string dll = "bassasio";
 
@@ -89,10 +89,12 @@ namespace osu.Framework.Audio.Asio
         [StructLayout(LayoutKind.Sequential)]
         internal struct AsioInfo
         {
-            public int Inputs;
-            public int Outputs;
-            public int BufferSize;    // minimum + maximum + preferred buffer size (all in samples)
-            public int BufferGranularity;  // buffer size granularity
+            public int MinBuffer;        // minimum buffer size (in samples)
+            public int MaxBuffer;        // maximum buffer size (in samples)
+            public int PreferredBuffer;  // preferred buffer size (in samples)
+            public int Granularity;      // buffer size granularity
+            public int Inputs;           // number of inputs
+            public int Outputs;          // number of outputs
         }
 
         [DllImport(dll, CallingConvention = CallingConvention.Winapi, EntryPoint = "BASS_ASIO_GetDeviceInfo")]

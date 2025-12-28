@@ -76,6 +76,11 @@ namespace osu.Framework.Audio
         public readonly AudioMixer SampleMixer;
 
         /// <summary>
+        /// Configuration for ASIO audio settings.
+        /// </summary>
+        public readonly AsioConfig AsioConfig = new AsioConfig();
+
+        /// <summary>
         /// The names of all available audio devices.
         /// </summary>
         /// <remarks>
@@ -234,6 +239,16 @@ namespace osu.Framework.Audio
         public static void SetPreferredAsioSampleRate(double? sampleRate)
         {
             preferredAsioSampleRate = sampleRate;
+        }
+
+        /// <summary>
+        /// Sets the preferred sample rate for ASIO devices using the AsioConfig.
+        /// This will be used during ASIO device initialization.
+        /// </summary>
+        /// <param name="sampleRate">The preferred sample rate in Hz.</param>
+        public void SetPreferredAsioSampleRate(double sampleRate)
+        {
+            AsioConfig.SampleRate.Value = sampleRate;
         }
 
         /// <summary>
@@ -655,7 +670,7 @@ namespace osu.Framework.Audio
 
                 try
                 {
-                    innerSuccess = thread.InitDevice(device, toThreadOutputMode(outputMode), asioDeviceIndex, outputMode == AudioOutputMode.Asio ? preferredAsioSampleRate : null);
+                    innerSuccess = thread.InitDevice(device, toThreadOutputMode(outputMode), asioDeviceIndex, outputMode == AudioOutputMode.Asio ? (double?)AsioConfig.SampleRate.Value : null);
                 }
                 catch (Exception e)
                 {
@@ -783,7 +798,7 @@ namespace osu.Framework.Audio
                 try
                 {
                     int asioCount = 0;
-                    foreach (var device in BassAsio.EnumerateDevices())
+                    foreach (var device in BassAsioPI.EnumerateDevices())
                     {
                         entries.Add(formatEntry(device.Name, type_asio));
                         asioCount++;
@@ -841,7 +856,7 @@ namespace osu.Framework.Audio
                 {
                     try
                     {
-                        if (BassAsio.TryFindDeviceIndexByName(name, out int found))
+                        if (BassAsioPI.TryFindDeviceIndexByName(name, out int found))
                             index = found;
                     }
                     catch (DllNotFoundException e)

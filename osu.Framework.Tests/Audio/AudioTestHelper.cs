@@ -72,7 +72,7 @@ namespace osu.Framework.Tests.Audio
             try
             {
                 int count = 0;
-                foreach (var device in osu.Framework.Audio.Asio.BassAsio.EnumerateDevices())
+                foreach (var device in osu.Framework.Audio.Asio.BassAsioPI.EnumerateDevices())
                 {
                     Console.WriteLine($"ASIO Device {device.Index}: {device.Name}");
                     count++;
