@@ -22,7 +22,7 @@ namespace osu.Framework.Audio.Asio
         /// <summary>
         /// Default sample rate to use when none is specified.
         /// </summary>
-        public const double DefaultSampleRate = 48000;
+        public const double DEFAULT_SAMPLE_RATE = 48000;
 
         /// <summary>
         /// Checks if a sample rate is commonly supported.
@@ -42,7 +42,7 @@ namespace osu.Framework.Audio.Asio
         /// </summary>
         public static double GetClosestSupportedSampleRate(double requestedRate)
         {
-            double closest = DefaultSampleRate;
+            double closest = DEFAULT_SAMPLE_RATE;
             double minDiff = double.MaxValue;
 
             foreach (double rate in SupportedSampleRates)
@@ -108,7 +108,7 @@ namespace osu.Framework.Audio.Asio
         /// <param name="deviceIndex">The index of the ASIO device to initialize.</param>
         /// <param name="sampleRatesToTry">The sample rates to try in order. If null, will try common rates.</param>
         /// <returns>True if initialization was successful, false otherwise.</returns>
-        public static bool InitializeDevice(int deviceIndex, double[] sampleRatesToTry = null)
+        public static bool InitializeDevice(int deviceIndex, double[]? sampleRatesToTry = null)
         {
             try
             {
@@ -149,7 +149,7 @@ namespace osu.Framework.Audio.Asio
 
                     if (BassAsio.Init(deviceIndex, flags))
                     {
-                        Logger.Log($"ASIO device initialized successfully with flags: {flags}", LoggingTarget.Runtime, LogLevel.Important);
+                        Logger.Log($"ASIO device initialized successfully with flags: {flags}", LoggingTarget.Runtime, LogLevel.Debug);
 
                         // Try sample rates in order
                         double[] ratesToTry = sampleRatesToTry ?? new double[] { 44100.0, 48000.0 };
@@ -181,8 +181,7 @@ namespace osu.Framework.Audio.Asio
                     }
 
                     var bassError = BassAsio.LastError;
-                    Logger.Log($"ASIO initialization failed with flags {flags}: {bassError} (Code: {(int)bassError})",
-                              LoggingTarget.Runtime, LogLevel.Debug);
+                    Logger.Log($"ASIO initialization failed with flags {flags}: {bassError} (Code: {(int)bassError}) - {GetAsioErrorDescription((int)bassError)}", LoggingTarget.Runtime, LogLevel.Important);
 
                     // If we get BufferLost error, try different approach
                     if (bassError == Errors.BufferLost)
@@ -195,8 +194,8 @@ namespace osu.Framework.Audio.Asio
 
                 // If all flag combinations failed, log the final error
                 var finalError = BassAsio.LastError;
-                Logger.Log($"All ASIO initialization attempts failed for device {deviceIndex}. Last error: {finalError} (Code: {(int)finalError})", LoggingTarget.Runtime, LogLevel.Error);
-                Logger.Log($"Device info: Name='{deviceInfo.Name}', Driver='{deviceInfo.Driver}'", LoggingTarget.Runtime, LogLevel.Error);
+                Logger.Log($"All ASIO initialization attempts failed for device {deviceIndex}. Last error: {finalError} (Code: {(int)finalError}) - {GetAsioErrorDescription((int)finalError)}", LoggingTarget.Runtime, LogLevel.Important);
+                Logger.Log($"Device info: Name='{deviceInfo.Name}', Driver='{deviceInfo.Driver}'", LoggingTarget.Runtime, LogLevel.Important);
                 return false;
             }
             catch (Exception ex)
@@ -246,7 +245,7 @@ namespace osu.Framework.Audio.Asio
 
                 if (BassAsio.Start())
                 {
-                    Logger.Log("ASIO device started successfully", LoggingTarget.Runtime, LogLevel.Important);
+                    Logger.Log("ASIO device started successfully", LoggingTarget.Runtime, LogLevel.Debug);
 
                     // Verify that channels are actually processing after start
                     channel0Active = BassAsio.ChannelIsActive(false, 0);
@@ -329,7 +328,7 @@ namespace osu.Framework.Audio.Asio
 
                 if (channelsConfigured)
                 {
-                    Logger.Log("ASIO output channels configured successfully", LoggingTarget.Runtime, LogLevel.Important);
+                    Logger.Log("ASIO output channels configured successfully", LoggingTarget.Runtime, LogLevel.Debug);
                 }
                 else
                 {
@@ -402,7 +401,7 @@ namespace osu.Framework.Audio.Asio
                     return false;
                 }
 
-                Logger.Log("Stereo output channels configured successfully", LoggingTarget.Runtime, LogLevel.Important);
+                Logger.Log("Stereo output channels configured successfully", LoggingTarget.Runtime, LogLevel.Debug);
                 return true;
             }
             catch (Exception ex)
@@ -492,6 +491,23 @@ namespace osu.Framework.Audio.Asio
             {
                 bufferPtr[i] = 0.0f;
             }
+        }
+
+        /// <summary>
+        /// Gets a description for an ASIO error code.
+        /// </summary>
+        private static string GetAsioErrorDescription(int errorCode)
+        {
+            return errorCode switch
+            {
+                3 => "ASIO driver unavailable, busy, incompatible, or failed to open. For Voicemeeter drivers, ensure the Voicemeeter application is running. For FiiO ASIO drivers, try routing through Voicemeeter or ensure no other applications are using the FiiO device.",
+                1 => "ASIO driver not present or invalid.",
+                2 => "No input/output channels present.",
+                6 => "Unsupported sample format. The ASIO driver may not support the requested audio format.",
+                8 => "Already initialized. This may indicate a driver conflict or improper cleanup.",
+                23 => "Device not present. The ASIO device may have been disconnected or is not available.",
+                _ => $"Unknown ASIO error (code {errorCode})."
+            };
         }
     }
 }

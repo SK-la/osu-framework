@@ -645,10 +645,12 @@ namespace osu.Framework.Threading
             int inputChannels = Math.Max(0, deviceInfo.Value.Inputs);
 
             // Validate device info
-            if (outputChannels <= 0)
+            if (outputChannels < 2)
             {
-                Logger.Log($"Invalid output channels ({outputChannels}), falling back to stereo", name: "audio", level: LogLevel.Important);
-                outputChannels = 2;
+                Logger.Log($"ASIO device has insufficient output channels ({outputChannels}), requires at least 2 for stereo", name: "audio", level: LogLevel.Important);
+                freeAsio();
+                FreeDevice(Bass.CurrentDevice);
+                return false;
             }
 
             double sampleRate = BassAsio.Rate;
@@ -657,25 +659,26 @@ namespace osu.Framework.Threading
             // Validate sample rate
             if (sampleRate <= 0 || sampleRate > 1000000 || double.IsNaN(sampleRate) || double.IsInfinity(sampleRate))
             {
-                Logger.Log($"Invalid sample rate detected ({sampleRate}Hz), using {AsioAudioFormat.DefaultSampleRate}Hz as fallback", name: "audio", level: LogLevel.Important);
-                sampleRate = AsioAudioFormat.DefaultSampleRate;
+                Logger.Log($"Invalid sample rate detected ({sampleRate}Hz), using {AsioAudioFormat.DEFAULT_SAMPLE_RATE}Hz as fallback", name: "audio", level: LogLevel.Important);
+                sampleRate = AsioAudioFormat.DEFAULT_SAMPLE_RATE;
             }
 
             Logger.Log($"Using ASIO device config - Outputs: {outputChannels}, Inputs: {inputChannels}, SampleRate: {sampleRate}Hz", name: "audio", level: LogLevel.Verbose);
 
-            // Create mixer with correct number of channels
-            Logger.Log($"Creating ASIO mixer stream: sampleRate={sampleRate}, outputChannels={outputChannels}", name: "audio", level: LogLevel.Verbose);
-            globalMixerHandle.Value = BassMix.CreateMixerStream((int)sampleRate, outputChannels, BassFlags.MixerNonStop | BassFlags.Decode | BassFlags.Float);
+            // Create mixer with stereo channels (game audio is always stereo)
+            const int mixerChannels = 2;
+            Logger.Log($"Creating ASIO mixer stream: sampleRate={sampleRate}, mixerChannels={mixerChannels} (stereo)", name: "audio", level: LogLevel.Verbose);
+            globalMixerHandle.Value = BassMix.CreateMixerStream((int)sampleRate, mixerChannels, BassFlags.MixerNonStop | BassFlags.Decode | BassFlags.Float);
             if (globalMixerHandle.Value == 0)
             {
                 var mixerError = Bass.LastError;
-                Logger.Log($"Failed to create ASIO mixer stream: {(int)mixerError} ({mixerError}), sampleRate={sampleRate}, channels={outputChannels}", name: "audio", level: LogLevel.Error);
+                Logger.Log($"Failed to create ASIO mixer stream: {(int)mixerError} ({mixerError}), sampleRate={sampleRate}, channels={mixerChannels}", name: "audio", level: LogLevel.Error);
                 freeAsio();
                 // Free the BASS device so AudioManager can retry with a different device
                 FreeDevice(Bass.CurrentDevice);
                 return false;
             }
-            Logger.Log($"Created ASIO mixer stream with {outputChannels} channels at {sampleRate}Hz (handle: {globalMixerHandle.Value})", name: "audio", level: LogLevel.Verbose);
+            Logger.Log($"Created ASIO mixer stream with {mixerChannels} channels at {sampleRate}Hz (handle: {globalMixerHandle.Value})", name: "audio", level: LogLevel.Verbose);
 
             // Set the global mixer handle for the ASIO device manager
             AsioDeviceManager.SetGlobalMixerHandle(globalMixerHandle.Value.Value);
@@ -690,7 +693,7 @@ namespace osu.Framework.Threading
                 return false;
             }
 
-            Logger.Log($"ASIO device initialized successfully - SampleRate: {sampleRate}Hz, Outputs: {outputChannels}, Inputs: {inputChannels}", name: "audio", level: LogLevel.Important);
+            Logger.Log($"ASIO device initialized successfully - SampleRate: {sampleRate}Hz, Outputs: {outputChannels}, Inputs: {inputChannels}", name: "audio", level: LogLevel.Debug);
 
             // Notify that ASIO device was initialized with the actual sample rate
             Manager?.OnAsioDeviceInitialized?.Invoke(sampleRate);
