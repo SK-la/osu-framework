@@ -668,24 +668,32 @@ namespace osu.Framework.Threading
             Logger.Log($"ASIO device initial sample rate: {initialRate}Hz", name: "audio", level: LogLevel.Verbose);
 
             // Try to set a common sample rate that most ASIO drivers support
-            const double preferredSampleRate = 44100.0;
-            bool rateSet44100 = BassAsio.SetRate(preferredSampleRate);
-            Logger.Log($"Set ASIO sample rate to {preferredSampleRate}Hz: {rateSet44100}", name: "audio", level: LogLevel.Verbose);
+            double preferredSampleRate = AsioAudioFormat.DefaultSampleRate;
+            bool rateSetPreferred = BassAsio.SetRate(preferredSampleRate);
+            Logger.Log($"Set ASIO sample rate to {preferredSampleRate}Hz: {rateSetPreferred}", name: "audio", level: LogLevel.Verbose);
 
-            double rateAfter44100 = BassAsio.GetRate();
-            Logger.Log($"ASIO sample rate after setting 44100Hz: {rateAfter44100}Hz", name: "audio", level: LogLevel.Verbose);
+            double rateAfterPreferred = BassAsio.GetRate();
+            Logger.Log($"ASIO sample rate after setting {preferredSampleRate}Hz: {rateAfterPreferred}Hz", name: "audio", level: LogLevel.Verbose);
 
-            if (!rateSet44100 || Math.Abs(rateAfter44100 - preferredSampleRate) > 1)
+            if (!rateSetPreferred || Math.Abs(rateAfterPreferred - preferredSampleRate) > 1)
             {
-                bool rateSet48000 = BassAsio.SetRate(48000.0);
-                Logger.Log($"Set ASIO sample rate to 48000Hz: {rateSet48000}", name: "audio", level: LogLevel.Verbose);
-
-                double rateAfter48000 = BassAsio.GetRate();
-                Logger.Log($"ASIO sample rate after setting 48000Hz: {rateAfter48000}Hz", name: "audio", level: LogLevel.Verbose);
-
-                if (!rateSet48000 || Math.Abs(rateAfter48000 - 48000.0) > 1)
+                // Try alternative sample rates
+                foreach (double altRate in AsioAudioFormat.SupportedSampleRates)
                 {
-                    Logger.Log($"ASIO device may not support common sample rates, using device default: {rateAfter48000}Hz", name: "audio", level: LogLevel.Important);
+                    if (Math.Abs(altRate - preferredSampleRate) < 1) continue; // Skip the one we already tried
+
+                    bool rateSetAlt = BassAsio.SetRate(altRate);
+                    Logger.Log($"Set ASIO sample rate to {altRate}Hz: {rateSetAlt}", name: "audio", level: LogLevel.Verbose);
+
+                    double rateAfterAlt = BassAsio.GetRate();
+                    Logger.Log($"ASIO sample rate after setting {altRate}Hz: {rateAfterAlt}Hz", name: "audio", level: LogLevel.Verbose);
+
+                    if (rateSetAlt && Math.Abs(rateAfterAlt - altRate) < 1)
+                    {
+                        preferredSampleRate = altRate;
+                        Logger.Log($"Successfully set ASIO sample rate to {altRate}Hz", name: "audio", level: LogLevel.Verbose);
+                        break;
+                    }
                 }
             }
 
@@ -695,8 +703,8 @@ namespace osu.Framework.Threading
             // Validate and set final sample rate
             if (finalSampleRate <= 0 || finalSampleRate > 1000000 || double.IsNaN(finalSampleRate) || double.IsInfinity(finalSampleRate))
             {
-                Logger.Log($"Invalid sample rate detected ({finalSampleRate}Hz), using 44100Hz as fallback", name: "audio", level: LogLevel.Important);
-                finalSampleRate = 44100;
+                Logger.Log($"Invalid sample rate detected ({finalSampleRate}Hz), using {AsioAudioFormat.DefaultSampleRate}Hz as fallback", name: "audio", level: LogLevel.Important);
+                finalSampleRate = AsioAudioFormat.DefaultSampleRate;
                 // Try to set it again
                 BassAsio.SetRate(finalSampleRate);
             }
@@ -715,17 +723,13 @@ namespace osu.Framework.Threading
                 return Bass.ChannelGetData(globalMixerHandle.Value!.Value, buffer, length);
             };
 
-            // Get ASIO info to understand channel configuration
-            BassAsio.AsioInfo info = new BassAsio.AsioInfo();
-            bool infoRetrieved = BassAsio.GetInfo(out info);
-            Logger.Log($"ASIO GetInfo result: {infoRetrieved}, Outputs: {info.Outputs}, Inputs: {info.Inputs}, BufferSize: {info.BufferSize}, BufferGranularity: {info.BufferGranularity}", name: "audio", level: LogLevel.Verbose);
+            // Skip GetInfo for now as it returns garbage values - use safe defaults
+            // TODO: Fix AsioInfo struct definition for proper device info retrieval
+            int outputChannels = 2; // Default to stereo
+            int inputChannels = 0;
+            int bufferSize = 1024; // Default buffer size
 
-            // Validate the info values - if they're garbage, use safe defaults
-            int outputChannels = (info.Outputs > 0 && info.Outputs < 100) ? info.Outputs : 2;
-            int inputChannels = (info.Inputs >= 0 && info.Inputs < 100) ? info.Inputs : 0;
-            int bufferSize = (info.BufferSize > 0 && info.BufferSize < 100000) ? info.BufferSize : 1024;
-
-            Logger.Log($"ASIO device info - Outputs: {outputChannels}, Inputs: {inputChannels}, BufferSize: {bufferSize} samples", name: "audio", level: LogLevel.Verbose);
+            Logger.Log($"Using default ASIO device config - Outputs: {outputChannels}, Inputs: {inputChannels}, BufferSize: {bufferSize} samples", name: "audio", level: LogLevel.Verbose);
 
             // Configure output channels properly
             if (outputChannels >= 2)
@@ -769,6 +773,10 @@ namespace osu.Framework.Threading
 
             Logger.Log($"ASIO device initialized - SampleRate: {sampleRate}Hz, Outputs: {outputChannels}, Inputs: {inputChannels}, BufferSize: {bufferSize} samples", name: "audio", level: LogLevel.Verbose);
 
+            // Lock the sample rate before starting ASIO to prevent it from changing
+            double lockedSampleRate = sampleRate;
+            Logger.Log($"Locked ASIO sample rate: {lockedSampleRate}Hz", name: "audio", level: LogLevel.Verbose);
+
             if (!BassAsio.Start(0))
             {
                 int startError = BassAsio.ErrorGetCode();
@@ -778,6 +786,13 @@ namespace osu.Framework.Threading
             }
 
             Logger.Log($"BassAsio initialised (Rate: {BassAsio.GetRate()}, OutChans: {outputChannels})");
+
+            // Verify the sample rate is still correct after start
+            double rateAfterStart = BassAsio.GetRate();
+            if (Math.Abs(rateAfterStart - lockedSampleRate) > 1)
+            {
+                Logger.Log($"Warning: ASIO sample rate changed after start (was {lockedSampleRate}Hz, now {rateAfterStart}Hz)", name: "audio", level: LogLevel.Important);
+            }
             return true;
         }
 

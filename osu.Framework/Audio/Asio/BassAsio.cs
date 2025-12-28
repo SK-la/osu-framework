@@ -9,6 +9,56 @@ using System.Runtime.InteropServices;
 
 namespace osu.Framework.Audio.Asio
 {
+    /// <summary>
+    /// Audio format configuration for ASIO devices.
+    /// </summary>
+    internal static class AsioAudioFormat
+    {
+        /// <summary>
+        /// Common sample rates supported by most ASIO devices.
+        /// </summary>
+        public static readonly double[] SupportedSampleRates = { 44100, 48000, 96000, 192000 };
+
+        /// <summary>
+        /// Default sample rate to use when none is specified.
+        /// </summary>
+        public const double DefaultSampleRate = 48000;
+
+        /// <summary>
+        /// Checks if a sample rate is commonly supported.
+        /// </summary>
+        public static bool IsSupportedSampleRate(double sampleRate)
+        {
+            foreach (double rate in SupportedSampleRates)
+            {
+                if (Math.Abs(rate - sampleRate) < 1)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Gets the closest supported sample rate to the requested rate.
+        /// </summary>
+        public static double GetClosestSupportedSampleRate(double requestedRate)
+        {
+            double closest = DefaultSampleRate;
+            double minDiff = double.MaxValue;
+
+            foreach (double rate in SupportedSampleRates)
+            {
+                double diff = Math.Abs(rate - requestedRate);
+                if (diff < minDiff)
+                {
+                    minDiff = diff;
+                    closest = rate;
+                }
+            }
+
+            return closest;
+        }
+    }
+
     internal static class BassAsio
     {
         private const string dll = "bassasio";

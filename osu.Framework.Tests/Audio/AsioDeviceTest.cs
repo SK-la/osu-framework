@@ -3,7 +3,6 @@
 
 using NUnit.Framework;
 using osu.Framework.Threading;
-using osu.Framework.Tests.Audio;
 
 namespace osu.Framework.Tests.Audio
 {

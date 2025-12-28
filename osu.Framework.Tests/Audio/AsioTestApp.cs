@@ -5,9 +5,7 @@ using System;
 using System.Linq;
 using NUnit.Framework;
 using osu.Framework.Audio;
-using osu.Framework.Audio.Track;
 using osu.Framework.IO.Stores;
-using osu.Framework.Platform;
 using osu.Framework.Threading;
 
 namespace osu.Framework.Tests.Audio
