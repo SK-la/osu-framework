@@ -200,7 +200,7 @@ namespace osu.Framework.Threading
         /// </summary>
         private readonly Bindable<int?> globalMixerHandle = new Bindable<int?>();
 
-        internal bool InitDevice(int deviceId, AudioThreadOutputMode outputMode, int? asioDeviceIndex = null)
+        internal bool InitDevice(int deviceId, AudioThreadOutputMode outputMode, int? asioDeviceIndex = null, double? preferredSampleRate = null)
         {
             Debug.Assert(ThreadSafety.IsAudioThread);
             Trace.Assert(deviceId != -1); // The real device ID should always be used, as the -1 device has special cases which are hard to work with.
@@ -250,7 +250,7 @@ namespace osu.Framework.Threading
                         return false;
                     }
 
-                    if (!initAsio(asioDeviceIndex.Value))
+                    if (!initAsio(asioDeviceIndex.Value, preferredSampleRate))
                         return false;
 
                     break;
@@ -589,7 +589,7 @@ namespace osu.Framework.Threading
             Logger.Log(message, name: "audio", level: LogLevel.Error);
         }
 
-        private bool initAsio(int asioDeviceIndex)
+        private bool initAsio(int asioDeviceIndex, double? preferredSampleRate = null)
         {
             if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
                 return false;
@@ -667,20 +667,24 @@ namespace osu.Framework.Threading
             double initialRate = BassAsio.GetRate();
             Logger.Log($"ASIO device initial sample rate: {initialRate}Hz", name: "audio", level: LogLevel.Verbose);
 
-            // Try to set a common sample rate that most ASIO drivers support
-            double preferredSampleRate = AsioAudioFormat.DefaultSampleRate;
-            bool rateSetPreferred = BassAsio.SetRate(preferredSampleRate);
-            Logger.Log($"Set ASIO sample rate to {preferredSampleRate}Hz: {rateSetPreferred}", name: "audio", level: LogLevel.Verbose);
+            // Try to set the preferred sample rate, or fall back to a common sample rate that most ASIO drivers support
+            double targetSampleRate = preferredSampleRate ?? AsioAudioFormat.DefaultSampleRate;
+            bool rateSetPreferred = BassAsio.SetRate(targetSampleRate);
+            Logger.Log($"Set ASIO sample rate to {targetSampleRate}Hz: {rateSetPreferred}", name: "audio", level: LogLevel.Verbose);
 
             double rateAfterPreferred = BassAsio.GetRate();
-            Logger.Log($"ASIO sample rate after setting {preferredSampleRate}Hz: {rateAfterPreferred}Hz", name: "audio", level: LogLevel.Verbose);
+            Logger.Log($"ASIO sample rate after setting {targetSampleRate}Hz: {rateAfterPreferred}Hz", name: "audio", level: LogLevel.Verbose);
 
-            if (!rateSetPreferred || Math.Abs(rateAfterPreferred - preferredSampleRate) > 1)
+            if (!rateSetPreferred || Math.Abs(rateAfterPreferred - targetSampleRate) > 1)
             {
-                // Try alternative sample rates
-                foreach (double altRate in AsioAudioFormat.SupportedSampleRates)
+                // Try alternative sample rates, starting with the user's preferred rate if it wasn't tried yet
+                var ratesToTry = new List<double>(AsioAudioFormat.SupportedSampleRates);
+                if (preferredSampleRate.HasValue && !ratesToTry.Contains(preferredSampleRate.Value))
+                    ratesToTry.Insert(0, preferredSampleRate.Value);
+
+                foreach (double altRate in ratesToTry)
                 {
-                    if (Math.Abs(altRate - preferredSampleRate) < 1) continue; // Skip the one we already tried
+                    if (Math.Abs(altRate - targetSampleRate) < 1) continue; // Skip the one we already tried
 
                     bool rateSetAlt = BassAsio.SetRate(altRate);
                     Logger.Log($"Set ASIO sample rate to {altRate}Hz: {rateSetAlt}", name: "audio", level: LogLevel.Verbose);

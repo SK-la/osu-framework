@@ -45,6 +45,12 @@ namespace osu.Framework.Audio
         private const int bass_default_device = 1;
 
         /// <summary>
+        /// Preferred sample rate for ASIO devices.
+        /// This is set by the UI and used during ASIO device initialization.
+        /// </summary>
+        private static double? preferredAsioSampleRate;
+
+        /// <summary>
         /// The manager component responsible for audio tracks (e.g. songs).
         /// </summary>
         public ITrackStore Tracks => globalTrackStore.Value;
@@ -219,6 +225,25 @@ namespace osu.Framework.Audio
 
         private readonly Lazy<TrackStore> globalTrackStore;
         private readonly Lazy<SampleStore> globalSampleStore;
+
+        /// <summary>
+        /// Sets the preferred sample rate for ASIO devices.
+        /// This will be used during ASIO device initialization.
+        /// </summary>
+        /// <param name="sampleRate">The preferred sample rate in Hz, or null to use default.</param>
+        public static void SetPreferredAsioSampleRate(double? sampleRate)
+        {
+            preferredAsioSampleRate = sampleRate;
+        }
+
+        /// <summary>
+        /// Gets the preferred sample rate for ASIO devices.
+        /// </summary>
+        /// <returns>The preferred sample rate in Hz, or null if not set.</returns>
+        public static double? GetPreferredAsioSampleRate()
+        {
+            return preferredAsioSampleRate;
+        }
 
         /// <summary>
         /// Constructs an AudioStore given a track resource store, and a sample resource store.
@@ -630,7 +655,7 @@ namespace osu.Framework.Audio
 
                 try
                 {
-                    innerSuccess = thread.InitDevice(device, toThreadOutputMode(outputMode), asioDeviceIndex);
+                    innerSuccess = thread.InitDevice(device, toThreadOutputMode(outputMode), asioDeviceIndex, outputMode == AudioOutputMode.Asio ? preferredAsioSampleRate : null);
                 }
                 catch (Exception e)
                 {
