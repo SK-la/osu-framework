@@ -74,5 +74,10 @@ unzip -qjo bassmix24-android.zip libs/arm64-v8a/* -d ../osu.Framework.Android/ar
 unzip -qjo bassmix24-android.zip libs/armeabi-v7a/* -d ../osu.Framework.Android/armeabi-v7a/
 unzip -qjo bassmix24-android.zip libs/x86/* -d ../osu.Framework.Android/x86/
 
+# bassasio
+curl -Lso bassasio.zip https://www.un4seen.com/stuff/bassasio.zip
+unzip -qjo bassasio.zip x64/bassasio.dll -d runtimes/win-x64/native/
+unzip -qjo bassasio.zip bassasio.dll -d runtimes/win-x86/native/
+
 # clean up
 rm bass*.zip
