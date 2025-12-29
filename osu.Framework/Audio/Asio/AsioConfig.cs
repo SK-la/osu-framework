@@ -34,5 +34,10 @@ namespace osu.Framework.Audio.Asio
         /// Gets a bindable indicating whether ASIO is enabled.
         /// </summary>
         public Bindable<bool> Enabled { get; } = new Bindable<bool>(false); // ASIO disabled by default
+
+        /// <summary>
+        /// Gets a bindable for the current device name.
+        /// </summary>
+        public Bindable<string> DeviceName { get; } = new Bindable<string>(string.Empty);
     }
 }

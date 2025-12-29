@@ -219,6 +219,13 @@ namespace osu.Framework.Threading
             freeAsio();
             freeWasapi();
 
+            // For ASIO mode, add extra delay before initialization to ensure device is fully released
+            if (outputMode == AudioThreadOutputMode.Asio)
+            {
+                Logger.Log("ASIO mode detected, adding extra delay before device initialization", name: "audio", level: LogLevel.Debug);
+                System.Threading.Thread.Sleep(300);
+            }
+
             // Try to initialise the device, or request a re-initialise.
             // 128 == BASS_DEVICE_REINIT. Only use it when the device is already initialised.
             var initFlags = initialised_devices.Contains(deviceId) ? (DeviceInitFlags)128 : 0;
@@ -607,8 +614,8 @@ namespace osu.Framework.Threading
             freeAsio();
 
             // Use the new AsioDeviceManager for initialization
-            // First try the preferred sample rate, then try common supported rates
-            double[] commonRates = { 44100.0, 48000.0, 96000.0, 176400.0, 192000.0 };
+            // Use the unified sample rate from AudioManager
+            double[] commonRates = { 48000.0, 44100.0, 96000.0, 176400.0, 192000.0 };
             List<double> ratesToTry = new List<double>();
 
             if (preferredSampleRate.HasValue)
@@ -625,8 +632,8 @@ namespace osu.Framework.Threading
             if (!AsioDeviceManager.InitializeDevice(asioDeviceIndex, sampleRatesToTry))
             {
                 Logger.Log($"AsioDeviceManager.InitializeDevice({asioDeviceIndex}, [{string.Join(",", sampleRatesToTry)}]) failed", name: "audio", level: LogLevel.Error);
-                // Free the BASS device so AudioManager can retry with a different device
-                FreeDevice(Bass.CurrentDevice);
+                // Don't automatically free the BASS device - let AudioManager handle fallback decisions
+                // This prevents overly aggressive device switching that reduces device availability
                 return false;
             }
 
@@ -636,8 +643,7 @@ namespace osu.Framework.Threading
             {
                 Logger.Log("Failed to get ASIO device info after initialization", name: "audio", level: LogLevel.Error);
                 freeAsio();
-                // Free the BASS device so AudioManager can retry with a different device
-                FreeDevice(Bass.CurrentDevice);
+                // Don't automatically free the BASS device - let AudioManager handle fallback decisions
                 return false;
             }
 
@@ -688,8 +694,7 @@ namespace osu.Framework.Threading
             {
                 Logger.Log("AsioDeviceManager.StartDevice() failed", name: "audio", level: LogLevel.Error);
                 freeAsio();
-                // Free the BASS device so AudioManager can retry with a different device
-                FreeDevice(Bass.CurrentDevice);
+                // Don't automatically free the BASS device - let AudioManager handle fallback decisions
                 return false;
             }
 
@@ -731,6 +736,10 @@ namespace osu.Framework.Threading
                 Bass.StreamFree(globalMixerHandle.Value.Value);
                 globalMixerHandle.Value = null;
             }
+
+            // Add additional delay after freeing ASIO device to ensure complete release
+            // This prevents device busy errors when switching between ASIO devices
+            System.Threading.Thread.Sleep(200);
         }
 
         internal enum AudioThreadOutputMode

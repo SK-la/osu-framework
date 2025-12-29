@@ -82,6 +82,16 @@ namespace osu.Framework.Audio
         public readonly AsioConfig AsioConfig = new AsioConfig();
 
         /// <summary>
+        /// Unified sample rate configuration for all audio output modes.
+        /// This replaces the need for separate sample rate management in different places.
+        /// </summary>
+        public readonly Bindable<double> SampleRate = new Bindable<double>(48000.0);
+
+        /// <summary>
+        /// The names of all available audio devices.
+        /// </summary>
+
+        /// <summary>
         /// The names of all available audio devices.
         /// </summary>
         /// <remarks>
@@ -507,7 +517,21 @@ namespace osu.Framework.Audio
             {
                 // ASIO output still requires BASS to be initialised, but output is performed by BassAsio.
                 // Use the OS default BASS device as a fallback initialisation target.
-                if (trySetDevice(bass_default_device, mode, asioIndex)) return;
+                // For ASIO mode, add retry logic since device initialization can be flaky
+                const int maxAsioRetries = 3;
+                for (int retry = 0; retry < maxAsioRetries; retry++)
+                {
+                    if (trySetDevice(bass_default_device, mode, asioIndex))
+                        return;
+
+                    if (retry < maxAsioRetries - 1)
+                    {
+                        Logger.Log($"ASIO device initialization failed, retrying in 1 second (attempt {retry + 1}/{maxAsioRetries})", name: "audio", level: LogLevel.Important);
+                        System.Threading.Thread.Sleep(1000);
+                    }
+                }
+                // If all retries failed, fall back to default
+                Logger.Log("ASIO device initialization failed after all retries, falling back to default device", name: "audio", level: LogLevel.Important);
             }
             else
             {
@@ -685,11 +709,11 @@ namespace osu.Framework.Audio
                     return false;
                 }
 
-                // For ASIO mode, if InitDevice fails, we should always return false to trigger fallback
-                // even if BASS was successfully initialized, because ASIO is what the user requested
+                // For ASIO mode, initialization failure should be treated as a critical failure
+                // since ASIO devices require specific initialization that may not be recoverable
                 if (outputMode == AudioOutputMode.Asio && !innerSuccess)
                 {
-                    Logger.Log("ASIO device initialization failed, falling back to default audio", name: "audio", level: LogLevel.Important);
+                    Logger.Log("ASIO device initialization failed - this is treated as a critical failure", name: "audio", level: LogLevel.Error);
                     return false;
                 }
 
@@ -697,10 +721,11 @@ namespace osu.Framework.Audio
 
                 if (alreadyInitialised)
                 {
-                    // For ASIO mode, even if BASS is already initialized, we need to ensure ASIO was properly initialized
+                    // For ASIO mode, if InitDevice fails, this should be treated as a failure
+                    // since the ASIO device may not be properly initialized even if BASS is already initialized
                     if (outputMode == AudioOutputMode.Asio && !innerSuccess)
                     {
-                        Logger.Log("ASIO initialization failed even though BASS was already initialized", name: "audio", level: LogLevel.Error);
+                        Logger.Log("ASIO device initialization failed even though BASS was already initialized", name: "audio", level: LogLevel.Error);
                         return false;
                     }
                     return true;
@@ -970,9 +995,26 @@ namespace osu.Framework.Audio
             var device = audioDevices.ElementAtOrDefault(Bass.CurrentDevice);
             var (mode, selectedName, _) = parseSelection(AudioDevice.Value);
 
-            // ASIO output selection does not map to a BASS device name; just ensure we're initialised.
+            // ASIO output selection does not map to a BASS device name; ensure we're initialised and ASIO is working.
             if (mode == AudioOutputMode.Asio)
-                return device.IsEnabled && device.IsInitialized;
+            {
+                if (!device.IsEnabled || !device.IsInitialized)
+                    return false;
+
+                // For ASIO mode, also verify that ASIO device is actually initialized and working
+                try
+                {
+                    var asioInfo = AsioDeviceManager.GetCurrentDeviceInfo();
+                    var currentRate = AsioDeviceManager.GetCurrentSampleRate();
+
+                    // Check if ASIO device info exists and sample rate is valid
+                    return asioInfo != null && currentRate > 0 && !double.IsNaN(currentRate) && !double.IsInfinity(currentRate);
+                }
+                catch
+                {
+                    return false;
+                }
+            }
 
             bool isFallback = string.IsNullOrEmpty(selectedName) ? !device.IsDefault : device.Name != selectedName;
             return device.IsEnabled && device.IsInitialized && !isFallback;
