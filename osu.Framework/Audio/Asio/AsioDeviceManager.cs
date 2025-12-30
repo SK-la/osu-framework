@@ -221,9 +221,13 @@ namespace osu.Framework.Audio.Asio
         {
             get
             {
+                Logger.Log("AvailableDevicesWithSampleRates getter called", LoggingTarget.Runtime, LogLevel.Debug);
+
                 foreach (var (index, name) in AvailableDevices)
                 {
+                    Logger.Log($"Getting supported rates for device {index}: {name}", LoggingTarget.Runtime, LogLevel.Debug);
                     double[] supportedRates = GetSupportedSampleRates(index).ToArray();
+                    Logger.Log($"Device {index} ({name}) supports {supportedRates.Length} rates: {string.Join(", ", supportedRates)}", LoggingTarget.Runtime, LogLevel.Debug);
                     yield return (index, name, supportedRates);
                 }
             }
@@ -473,7 +477,10 @@ namespace osu.Framework.Audio.Asio
                 Logger.Log($"Querying supported sample rates for ASIO device index {deviceIndex}", LoggingTarget.Runtime, LogLevel.Debug);
 
                 if (!tryGetDeviceInfo(deviceIndex, out AsioDeviceInfo deviceInfo))
+                {
+                    Logger.Log($"Failed to get device info for ASIO device index {deviceIndex}", LoggingTarget.Runtime, LogLevel.Error);
                     return supportedRates;
+                }
 
                 Logger.Log($"Querying sample rates for ASIO device {deviceInfo.Name}", LoggingTarget.Runtime, LogLevel.Debug);
 
@@ -485,6 +492,8 @@ namespace osu.Framework.Audio.Asio
                     Logger.Log($"Failed to temporarily initialize ASIO device {deviceIndex} for rate querying", LoggingTarget.Runtime, LogLevel.Error);
                     return supportedRates;
                 }
+
+                Logger.Log($"Successfully initialized ASIO device {deviceIndex}, now checking sample rates", LoggingTarget.Runtime, LogLevel.Debug);
 
                 foreach (int rate in SUPPORTED_SAMPLE_RATES)
                 {
