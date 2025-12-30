@@ -188,6 +188,18 @@ namespace osu.Framework.Audio.Asio
         {
             get
             {
+                // Check if ASIO is available before attempting to enumerate
+                try
+                {
+                    // Try to get device count to test if ASIO is available
+                    BassAsio.DeviceCount.GetHashCode(); // Simple operation to trigger any DLL loading issues
+                }
+                catch
+                {
+                    // ASIO is not available
+                    yield break;
+                }
+
                 int deviceCount = BassAsio.DeviceCount;
 
                 for (int i = 0; i < deviceCount; i++)
@@ -385,7 +397,7 @@ namespace osu.Framework.Audio.Asio
             var channel1Active = BassAsio.ChannelIsActive(false, 1);
 
             Logger.Log($"Channel status - Channel 0: {channel0Active}, Channel 1: {channel1Active}",
-        LoggingTarget.Runtime, LogLevel.Debug);
+                LoggingTarget.Runtime, LogLevel.Debug);
 
             // 检查两个通道是否都处于激活状态
             return (int)channel0Active != 0 && (int)channel1Active != 0;
@@ -561,7 +573,7 @@ namespace osu.Framework.Audio.Asio
             try
             {
                 // 配置第一个立体声输出对（通道0和1）
-                Logger.Log($"Configuring stereo output channels (0 and 1) for ASIO device", LoggingTarget.Runtime, LogLevel.Debug);
+                Logger.Log("Configuring stereo output channels (0 and 1) for ASIO device", LoggingTarget.Runtime, LogLevel.Debug);
 
                 // 创建ASIO过程回调
                 AsioProcedure asioCallback = asioProcedure;

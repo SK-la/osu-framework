@@ -32,11 +32,15 @@ namespace osu.Framework.Tests.Audio
                 if (RuntimeInfo.OS == RuntimeInfo.Platform.Windows)
                 {
                     var asioDevices = deviceNames.Where(name => name.Contains("(ASIO)")).ToList();
-                    Assert.That(asioDevices.Count, Is.GreaterThanOrEqualTo(0), $"Found {asioDevices.Count} ASIO devices");
+
+                    // ASIO may not be available in test environment, so we just log what we found
+                    TestContext.WriteLine($"Found {asioDevices.Count} ASIO devices");
 
                     // Log the devices for debugging
                     foreach (var device in deviceNames)
                         TestContext.WriteLine($"Device: {device}");
+
+                    // Don't assert on ASIO device count since it may not be available in test environment
                 }
             }
         }

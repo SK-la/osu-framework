@@ -106,7 +106,8 @@ namespace osu.Framework.Audio
         /// <summary>
         /// 在ASIO设备成功初始化后触发，提供实际使用的采样率。
         /// </summary>
-        public Action<double>? OnAsioDeviceInitialized;
+        [CanBeNull]
+        public Action<double> OnAsioDeviceInitialized;
 
         /// <summary>
         /// The preferred audio device we should use. A value of
@@ -187,6 +188,53 @@ namespace osu.Framework.Audio
         private const string type_asio = "ASIO";
 
         private bool syncingSelection;
+
+        /// <summary>
+        /// Safely enumerates ASIO devices with proper error handling.
+        /// </summary>
+        /// <returns>An enumerable of ASIO devices, or empty if ASIO is not available.</returns>
+        private IEnumerable<(int Index, string Name)> enumerateAsioDevices()
+        {
+            if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
+                return Enumerable.Empty<(int, string)>();
+
+            try
+            {
+                return AsioDeviceManager.AvailableDevices;
+            }
+            catch (DllNotFoundException)
+            {
+                // ASIO native library not available - this is expected in some test environments
+                return Enumerable.Empty<(int, string)>();
+            }
+            catch (EntryPointNotFoundException)
+            {
+                // ASIO native library not available - this is expected in some test environments
+                return Enumerable.Empty<(int, string)>();
+            }
+            catch (Exception ex)
+            {
+                // Log other unexpected exceptions but don't fail
+                Logger.Log($"Unexpected error enumerating ASIO devices: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
+                return Enumerable.Empty<(int, string)>();
+            }
+        }
+
+        /// <summary>
+        /// Finds the ASIO device index for a given device name.
+        /// </summary>
+        /// <param name="deviceName">The name of the ASIO device to find.</param>
+        /// <returns>The device index if found, null otherwise.</returns>
+        private int? findAsioDeviceIndex(string deviceName)
+        {
+            foreach (var device in enumerateAsioDevices())
+            {
+                if (device.Name == deviceName)
+                    return device.Index;
+            }
+
+            return null;
+        }
 
         private void setUserBindableValueLeaseSafe<T>(Bindable<T> bindable, T newValue)
         {
@@ -423,7 +471,7 @@ namespace osu.Framework.Audio
         /// Channels removed from this <see cref="AudioMixer"/> fall back to the global <see cref="SampleMixer"/>.
         /// </remarks>
         /// <param name="identifier">An identifier displayed on the audio mixer visualiser.</param>
-        public AudioMixer CreateAudioMixer(string identifier = default) => createAudioMixer(SampleMixer, !string.IsNullOrEmpty(identifier) ? identifier : $"user #{Interlocked.Increment(ref userMixerID)}");
+        public AudioMixer CreateAudioMixer(string identifier = null) => createAudioMixer(SampleMixer, !string.IsNullOrEmpty(identifier) ? identifier : $"user #{Interlocked.Increment(ref userMixerID)}");
 
         private AudioMixer createAudioMixer(AudioMixer fallbackMixer, string identifier)
         {
@@ -519,10 +567,10 @@ namespace osu.Framework.Audio
                 // ASIO output still requires BASS to be initialised, but output is performed by BassAsio.
                 // Use the OS default BASS device as a fallback initialisation target.
                 // For ASIO mode, add retry logic since device initialization can be flaky
-                const int maxAsioRetries = 3;
+                const int max_asio_retries = 3;
                 bool asioInitSuccess = false;
 
-                for (int retry = 0; retry < maxAsioRetries; retry++)
+                for (int retry = 0; retry < max_asio_retries; retry++)
                 {
                     if (trySetDevice(bass_default_device, mode, asioIndex))
                     {
@@ -530,16 +578,16 @@ namespace osu.Framework.Audio
                         break;
                     }
 
-                    if (retry < maxAsioRetries - 1)
+                    if (retry < max_asio_retries - 1)
                     {
-                        Logger.Log($"ASIO device initialization failed, retrying in 1 second (attempt {retry + 1}/{maxAsioRetries})", name: "audio", level: LogLevel.Important);
-                        System.Threading.Thread.Sleep(1000);
+                        Logger.Log($"ASIO device initialization failed, retrying in 1 second (attempt {retry + 1}/{max_asio_retries})", name: "audio", level: LogLevel.Important);
+                        Thread.Sleep(1000);
 
                         // Force cleanup between retries to prevent resource conflicts
                         scheduler.Add(() =>
                         {
                             thread.FreeDevice(bass_default_device);
-                            System.Threading.Thread.Sleep(200);
+                            Thread.Sleep(200);
                         });
                     }
                 }
@@ -548,7 +596,6 @@ namespace osu.Framework.Audio
                 {
                     Logger.Log("ASIO device initialization failed after all retries, falling back to default device", name: "audio", level: LogLevel.Important);
                     // Fall back to default - don't try other devices as they may also fail
-                    return;
                 }
 
                 return;
@@ -720,7 +767,7 @@ namespace osu.Framework.Audio
 
                 try
                 {
-                    innerSuccess = thread.InitDevice(device, toThreadOutputMode(outputMode), asioDeviceIndex, outputMode == AudioOutputMode.Asio ? (double?)SampleRate.Value : null);
+                    innerSuccess = thread.InitDevice(device, toThreadOutputMode(outputMode), asioDeviceIndex, outputMode == AudioOutputMode.Asio ? SampleRate.Value : null);
                 }
                 catch (Exception e)
                 {
@@ -847,28 +894,15 @@ namespace osu.Framework.Audio
                 entries.AddRange(audioDeviceNames.Select(d => formatEntry(d, type_wasapi_exclusive)));
 
                 // ASIO drivers.
-                try
+                int asioCount = 0;
+
+                foreach (var device in enumerateAsioDevices())
                 {
-                    int asioCount = 0;
-                    foreach (var device in AsioDeviceManager.AvailableDevices)
-                    {
-                        entries.Add(formatEntry(device.Name, type_asio));
-                        asioCount++;
-                    }
-                    Logger.Log($"Found {asioCount} ASIO devices", name: "audio", level: LogLevel.Verbose);
+                    entries.Add(formatEntry(device.Name, type_asio));
+                    asioCount++;
                 }
-                catch (DllNotFoundException e)
-                {
-                    logAsioNativeUnavailableOnce(e);
-                }
-                catch (EntryPointNotFoundException e)
-                {
-                    logAsioNativeUnavailableOnce(e);
-                }
-                catch
-                {
-                    // ASIO is optional and may not be available.
-                }
+
+                Logger.Log($"Found {asioCount} ASIO devices", name: "audio", level: LogLevel.Verbose);
             }
 
             return entries;
@@ -902,34 +936,7 @@ namespace osu.Framework.Audio
 
             if (tryParseSuffixed(selection, type_asio, out name))
             {
-                int? index = null;
-
-                if (RuntimeInfo.OS == RuntimeInfo.Platform.Windows)
-                {
-                    try
-                    {
-                        foreach (var device in AsioDeviceManager.AvailableDevices)
-                        {
-                            if (device.Name == name)
-                            {
-                                index = device.Index;
-                                break;
-                            }
-                        }
-                    }
-                    catch (DllNotFoundException e)
-                    {
-                        logAsioNativeUnavailableOnce(e);
-                    }
-                    catch (EntryPointNotFoundException e)
-                    {
-                        logAsioNativeUnavailableOnce(e);
-                    }
-                    catch
-                    {
-                    }
-                }
-
+                int? index = findAsioDeviceIndex(name);
                 return (AudioOutputMode.Asio, name, index);
             }
 
@@ -1025,7 +1032,7 @@ namespace osu.Framework.Audio
                 try
                 {
                     var asioInfo = AsioDeviceManager.GetCurrentDeviceInfo();
-                    var currentRate = AsioDeviceManager.GetCurrentSampleRate();
+                    double currentRate = AsioDeviceManager.GetCurrentSampleRate();
 
                     // Check if ASIO device info exists and sample rate is valid
                     return asioInfo != null && currentRate > 0 && !double.IsNaN(currentRate) && !double.IsInfinity(currentRate);
