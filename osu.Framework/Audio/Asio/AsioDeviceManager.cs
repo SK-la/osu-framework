@@ -19,13 +19,14 @@ namespace osu.Framework.Audio.Asio
         /// <summary>
         /// 常见采样率列表, 用于尝试验证设备支持的采样率。
         /// 按优先级排序，48kHz优先于44.1kHz。
+        /// 使用int类型因为采样率通常是整数值，double仅在底层API交互时使用。
         /// </summary>
-        public static readonly double[] SUPPORTED_SAMPLE_RATES = { 48000, 44100, 96000, 176400, 192000, 384000 };
+        public static readonly int[] SUPPORTED_SAMPLE_RATES = { 48000, 44100, 96000, 176400, 192000, 384000 };
 
         /// <summary>
         /// 未指定、或设置采样率失败时，使用默认采样率48kHz，性能较好。
         /// </summary>
-        public const double DEFAULT_SAMPLE_RATE = 48000;
+        public const int DEFAULT_SAMPLE_RATE = 48000;
 
         /// <summary>
         /// 最大重试次数，用于处理设备繁忙的情况。
@@ -257,7 +258,7 @@ namespace osu.Framework.Audio.Asio
                     if (tryInitializeDevice(deviceIndex, flags))
                     {
                         // 尝试采样率
-                        double[] ratesToTry = sampleRatesToTry ?? SUPPORTED_SAMPLE_RATES;
+                        double[] ratesToTry = sampleRatesToTry ?? SUPPORTED_SAMPLE_RATES.Select(rate => (double)rate).ToArray();
                         double successfulRate = 0;
 
                         foreach (double rate in ratesToTry)
@@ -485,7 +486,7 @@ namespace osu.Framework.Audio.Asio
                     return supportedRates;
                 }
 
-                foreach (double rate in SUPPORTED_SAMPLE_RATES)
+                foreach (int rate in SUPPORTED_SAMPLE_RATES)
                 {
                     try
                     {
@@ -599,7 +600,7 @@ namespace osu.Framework.Audio.Asio
                     Logger.Log($"Failed to set format Float for channel 1: {BassAsio.LastError}", LoggingTarget.Runtime, LogLevel.Error);
 
                 // 对齐
-                double targetRate = BassAsio.Rate > 0 ? BassAsio.Rate : DEFAULT_SAMPLE_RATE;
+                double targetRate = BassAsio.Rate > 0 ? BassAsio.Rate : (double)DEFAULT_SAMPLE_RATE;
                 if (!BassAsio.ChannelSetRate(false, 0, targetRate))
                     Logger.Log($"Failed to set rate {targetRate} for channel 0: {BassAsio.LastError}", LoggingTarget.Runtime, LogLevel.Debug);
                 if (!BassAsio.ChannelSetRate(false, 1, targetRate))

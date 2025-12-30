@@ -72,12 +72,12 @@ namespace osu.Framework.Audio
         /// <summary>
         /// 采样率，用于ASIO设备的初始化和运行时更改。
         /// </summary>
-        public readonly Bindable<double> SampleRate = new Bindable<double>(48000.0);
+        public readonly Bindable<int> SampleRate = new Bindable<int>(48000);
 
         /// <summary>
         /// ASIO设备的首选采样率, 用于设备的初始化。
         /// </summary>
-        private static double? preferredAsioSampleRate;
+        private static int? preferredAsioSampleRate;
 
         /// <summary>
         /// The names of all available audio devices.
@@ -287,7 +287,7 @@ namespace osu.Framework.Audio
         /// This will be used during ASIO device initialization.
         /// </summary>
         /// <param name="sampleRate">The preferred sample rate in Hz, or null to use default.</param>
-        public static void SetPreferredAsioSampleRate(double? sampleRate)
+        public static void SetPreferredAsioSampleRate(int? sampleRate)
         {
             preferredAsioSampleRate = sampleRate;
         }
@@ -297,7 +297,7 @@ namespace osu.Framework.Audio
         /// This will be used during ASIO device initialization.
         /// </summary>
         /// <param name="sampleRate">The preferred sample rate in Hz.</param>
-        public void SetPreferredAsioSampleRate(double sampleRate)
+        public void SetPreferredAsioSampleRate(int sampleRate)
         {
             SampleRate.Value = sampleRate;
         }
@@ -306,7 +306,7 @@ namespace osu.Framework.Audio
         /// Gets the preferred sample rate for ASIO devices.
         /// </summary>
         /// <returns>The preferred sample rate in Hz, or null if not set.</returns>
-        public static double? GetPreferredAsioSampleRate()
+        public static int? GetPreferredAsioSampleRate()
         {
             return preferredAsioSampleRate;
         }

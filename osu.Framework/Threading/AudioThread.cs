@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
 using ManagedBass;
@@ -25,7 +24,6 @@ namespace osu.Framework.Threading
     public class AudioThread : GameThread
     {
         private static int wasapiNativeUnavailableLogged;
-        private static int asioResolverRegistered;
 
         public AudioThread()
             : base(name: "Audio")
@@ -199,7 +197,7 @@ namespace osu.Framework.Threading
         /// </summary>
         private readonly Bindable<int?> globalMixerHandle = new Bindable<int?>();
 
-        internal bool InitDevice(int deviceId, AudioThreadOutputMode outputMode, int? asioDeviceIndex = null, double? preferredSampleRate = null)
+        internal bool InitDevice(int deviceId, AudioThreadOutputMode outputMode, int? asioDeviceIndex = null, int? preferredSampleRate = null)
         {
             Debug.Assert(ThreadSafety.IsAudioThread);
             Trace.Assert(deviceId != -1); // The real device ID should always be used, as the -1 device has special cases which are hard to work with.
@@ -297,30 +295,11 @@ namespace osu.Framework.Threading
         /// </summary>
         internal static void PreloadBass()
         {
-            if (RuntimeInfo.OS == RuntimeInfo.Platform.Windows)
-            {
-                if (Interlocked.Exchange(ref asioResolverRegistered, 1) == 1)
-                    return;
-
-                NativeLibrary.SetDllImportResolver(typeof(BassAsio).Assembly, resolveBassAsio);
-            }
-
             if (RuntimeInfo.OS == RuntimeInfo.Platform.Linux)
             {
                 // required for the time being to address libbass_fx.so load failures (see https://github.com/ppy/osu/issues/2852)
                 Library.Load("libbass.so", Library.LoadFlags.RTLD_LAZY | Library.LoadFlags.RTLD_GLOBAL);
             }
-        }
-
-        private static IntPtr resolveBassAsio(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
-        {
-            if (!libraryName.Equals("bassasio", StringComparison.OrdinalIgnoreCase)
-                && !libraryName.Equals("bassasio.dll", StringComparison.OrdinalIgnoreCase))
-                return IntPtr.Zero;
-
-            // Let ManagedBass.Asio handle the DLL loading with its default mechanism
-            // This removes the need for hardcoded paths and improves cross-platform compatibility
-            return IntPtr.Zero; // Return zero to let the runtime use default resolution
         }
 
         private bool attemptWasapiInitialisation() => attemptWasapiInitialisation(Bass.CurrentDevice, exclusive: false);
@@ -565,7 +544,7 @@ namespace osu.Framework.Threading
             Logger.Log(message, name: "audio", level: LogLevel.Error);
         }
 
-        private bool initAsio(int asioDeviceIndex, double? preferredSampleRate = null)
+        private bool initAsio(int asioDeviceIndex, int? preferredSampleRate = null)
         {
             Logger.Log($"Attempting ASIO initialisation for device {asioDeviceIndex}", name: "audio", level: LogLevel.Verbose);
 
@@ -578,7 +557,7 @@ namespace osu.Framework.Threading
             if (preferredSampleRate.HasValue)
                 ratesToTry.Add(preferredSampleRate.Value);
 
-            foreach (double rate in AsioDeviceManager.SUPPORTED_SAMPLE_RATES)
+            foreach (int rate in AsioDeviceManager.SUPPORTED_SAMPLE_RATES)
             {
                 if (!ratesToTry.Contains(rate))
                     ratesToTry.Add(rate);
