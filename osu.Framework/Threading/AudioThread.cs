@@ -609,7 +609,7 @@ namespace osu.Framework.Threading
 
         private bool initAsio(int asioDeviceIndex, int? preferredSampleRate = null)
         {
-            Logger.Log($"尝试为设备 {asioDeviceIndex} 初始化ASIO", name: "audio", level: LogLevel.Verbose);
+            Logger.Log($"Initializing ASIO device {asioDeviceIndex} with preferred sample rate {preferredSampleRate}Hz", name: "audio", level: LogLevel.Important);
 
             freeAsio();
 
@@ -700,7 +700,7 @@ namespace osu.Framework.Threading
                 return false;
             }
 
-            Logger.Log($"ASIO设备初始化成功 - 采样率: {sampleRate}Hz, 输出: {outputChannels}, 输入: {inputChannels}", name: "audio", level: LogLevel.Debug);
+            Logger.Log($"ASIO设备初始化成功 - 采样率: {sampleRate}Hz, 输出: {outputChannels}, 输入: {inputChannels}", name: "audio", level: LogLevel.Important);
 
             // 通知ASIO设备已使用实际采样率初始化
             Manager?.OnAsioDeviceInitialized?.Invoke(sampleRate);
@@ -712,6 +712,8 @@ namespace osu.Framework.Threading
         {
             if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
                 return;
+
+            Logger.Log("Freeing ASIO device", name: "audio", level: LogLevel.Important);
 
             try
             {

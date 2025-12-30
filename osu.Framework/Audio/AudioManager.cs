@@ -396,6 +396,7 @@ namespace osu.Framework.Audio
                 if (hasTypeSuffix(AudioDevice.Value) && tryParseSuffixed(AudioDevice.Value, type_asio, out string _))
                 {
                     Logger.Log($"Sample rate changed to {SampleRate.Value}Hz, reinitializing ASIO device", name: "audio", level: LogLevel.Important);
+                    Logger.Log($"Current audio device before reinitialization: {AudioDevice.Value}", name: "audio", level: LogLevel.Debug);
                     scheduler.AddOnce(initCurrentDevice);
                 }
                 else
@@ -564,6 +565,8 @@ namespace osu.Framework.Audio
             // try using the specified device
             if (mode == AudioOutputMode.Asio)
             {
+                Logger.Log($"Initializing ASIO device with index {asioIndex}, preferred sample rate {SampleRate.Value}Hz", name: "audio", level: LogLevel.Important);
+
                 // ASIO output still requires BASS to be initialised, but output is performed by BassAsio.
                 // Use the OS default BASS device as a fallback initialisation target.
                 // For ASIO mode, add retry logic since device initialization can be flaky
@@ -572,8 +575,10 @@ namespace osu.Framework.Audio
 
                 for (int retry = 0; retry < max_asio_retries; retry++)
                 {
+                    Logger.Log($"ASIO initialization attempt {retry + 1}/{max_asio_retries}", name: "audio", level: LogLevel.Debug);
                     if (trySetDevice(bass_default_device, mode, asioIndex))
                     {
+                        Logger.Log($"ASIO device initialization successful on attempt {retry + 1}", name: "audio", level: LogLevel.Important);
                         asioInitSuccess = true;
                         break;
                     }
@@ -1069,7 +1074,9 @@ namespace osu.Framework.Audio
                 foreach (var device in AsioDeviceManager.AvailableDevicesWithSampleRates)
                 {
                     if (device.Name == deviceName)
+                    {
                         return device.SupportedSampleRates;
+                    }
                 }
             }
             catch (DllNotFoundException e)

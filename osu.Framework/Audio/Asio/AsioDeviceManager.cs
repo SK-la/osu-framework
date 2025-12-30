@@ -21,7 +21,7 @@ namespace osu.Framework.Audio.Asio
         /// 按优先级排序，48kHz优先于44.1kHz。
         /// 使用int类型因为采样率通常是整数值，double仅在底层API交互时使用。
         /// </summary>
-        public static readonly int[] SUPPORTED_SAMPLE_RATES = { 48000, 44100, 96000, 176400, 192000, 384000 };
+        public static readonly int[] SUPPORTED_SAMPLE_RATES = { 48000, 44100, 96000, 192000, 384000 };
 
         /// <summary>
         /// 未指定、或设置采样率失败时，使用默认采样率48kHz，性能较好。
@@ -121,7 +121,6 @@ namespace osu.Framework.Audio.Asio
             {
                 if (BassAsio.Init(deviceIndex, flags))
                 {
-                    Logger.Log($"ASIO device initialized successfully with flags: {flags} (attempt {retryCount + 1})", LoggingTarget.Runtime, LogLevel.Debug);
                     return true;
                 }
 
@@ -156,7 +155,6 @@ namespace osu.Framework.Audio.Asio
         {
             if (!BassAsio.CheckRate(rate))
             {
-                Logger.Log($"Device does not support {rate}Hz sample rate", LoggingTarget.Runtime, LogLevel.Debug);
                 return false;
             }
 
@@ -178,7 +176,6 @@ namespace osu.Framework.Audio.Asio
                 return false;
             }
 
-            Logger.Log($"Set ASIO device sample rate to {rate}Hz", LoggingTarget.Runtime, LogLevel.Debug);
             return true;
         }
 
@@ -221,13 +218,9 @@ namespace osu.Framework.Audio.Asio
         {
             get
             {
-                Logger.Log("AvailableDevicesWithSampleRates getter called", LoggingTarget.Runtime, LogLevel.Debug);
-
                 foreach (var (index, name) in AvailableDevices)
                 {
-                    Logger.Log($"Getting supported rates for device {index}: {name}", LoggingTarget.Runtime, LogLevel.Debug);
                     double[] supportedRates = GetSupportedSampleRates(index).ToArray();
-                    Logger.Log($"Device {index} ({name}) supports {supportedRates.Length} rates: {string.Join(", ", supportedRates)}", LoggingTarget.Runtime, LogLevel.Debug);
                     yield return (index, name, supportedRates);
                 }
             }
@@ -312,11 +305,7 @@ namespace osu.Framework.Audio.Asio
             try
             {
                 BassAsio.Stop();
-                Logger.Log("ASIO Stop", LoggingTarget.Runtime, LogLevel.Debug);
-
                 BassAsio.Free();
-                Logger.Log("ASIO Free", LoggingTarget.Runtime, LogLevel.Debug);
-
                 Thread.Sleep(DEVICE_FREE_DELAY_MS);
             }
             catch (Exception ex)
@@ -367,13 +356,7 @@ namespace osu.Framework.Audio.Asio
 
                 if (BassAsio.Start())
                 {
-                    Logger.Log("ASIO device started successfully", LoggingTarget.Runtime, LogLevel.Debug);
-
-                    // 启动后验证通道是否仍在处理
-                    if (!areChannelsActive())
-                    {
-                        Logger.Log("Warning: ASIO channels became inactive after start", LoggingTarget.Runtime, LogLevel.Important);
-                    }
+                    Logger.Log("ASIO device started successfully", LoggingTarget.Runtime, LogLevel.Important);
 
                     return true;
                 }
@@ -416,7 +399,7 @@ namespace osu.Framework.Audio.Asio
             try
             {
                 BassAsio.Stop();
-                Logger.Log("ASIO device stopped successfully", LoggingTarget.Runtime, LogLevel.Debug);
+                Logger.Log("ASIO device stopped successfully", LoggingTarget.Runtime, LogLevel.Important);
             }
             catch (Exception ex)
             {
@@ -474,15 +457,11 @@ namespace osu.Framework.Audio.Asio
 
             try
             {
-                Logger.Log($"Querying supported sample rates for ASIO device index {deviceIndex}", LoggingTarget.Runtime, LogLevel.Debug);
-
                 if (!tryGetDeviceInfo(deviceIndex, out AsioDeviceInfo deviceInfo))
                 {
                     Logger.Log($"Failed to get device info for ASIO device index {deviceIndex}", LoggingTarget.Runtime, LogLevel.Error);
                     return supportedRates;
                 }
-
-                Logger.Log($"Querying sample rates for ASIO device {deviceInfo.Name}", LoggingTarget.Runtime, LogLevel.Debug);
 
                 FreeDevice();
 
@@ -493,8 +472,6 @@ namespace osu.Framework.Audio.Asio
                     return supportedRates;
                 }
 
-                Logger.Log($"Successfully initialized ASIO device {deviceIndex}, now checking sample rates", LoggingTarget.Runtime, LogLevel.Debug);
-
                 foreach (int rate in SUPPORTED_SAMPLE_RATES)
                 {
                     try
@@ -502,11 +479,6 @@ namespace osu.Framework.Audio.Asio
                         if (BassAsio.CheckRate(rate))
                         {
                             supportedRates.Add(rate);
-                            Logger.Log($"ASIO device supports {rate}Hz sample rate", LoggingTarget.Runtime, LogLevel.Debug);
-                        }
-                        else
-                        {
-                            Logger.Log($"ASIO device does not support {rate}Hz sample rate", LoggingTarget.Runtime, LogLevel.Debug);
                         }
                     }
                     catch (Exception ex)
