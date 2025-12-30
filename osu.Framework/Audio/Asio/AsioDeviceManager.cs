@@ -356,8 +356,6 @@ namespace osu.Framework.Audio.Asio
 
                 if (BassAsio.Start())
                 {
-                    Logger.Log("ASIO device started successfully", LoggingTarget.Runtime, LogLevel.Important);
-
                     return true;
                 }
                 else
@@ -399,7 +397,6 @@ namespace osu.Framework.Audio.Asio
             try
             {
                 BassAsio.Stop();
-                Logger.Log("ASIO device stopped successfully", LoggingTarget.Runtime, LogLevel.Important);
             }
             catch (Exception ex)
             {
