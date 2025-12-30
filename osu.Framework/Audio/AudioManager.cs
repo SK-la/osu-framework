@@ -355,6 +355,24 @@ namespace osu.Framework.Audio
             // initCurrentDevice not required for changes to `GlobalMixerHandle` as it is only changed when experimental wasapi is toggled (handled above).
             GlobalMixerHandle.ValueChanged += handle => usingGlobalMixer.Value = handle.NewValue.HasValue;
 
+            // Listen for unified sample rate changes and reinitialize device if supported
+            SampleRate.ValueChanged += _ =>
+            {
+                if (syncingSelection)
+                    return;
+
+                // Only reinitialize if we're currently using an ASIO device (only ASIO supports runtime sample rate changes)
+                if (hasTypeSuffix(AudioDevice.Value) && tryParseSuffixed(AudioDevice.Value, type_asio, out string _))
+                {
+                    Logger.Log($"Unified sample rate changed to {SampleRate.Value}Hz, reinitializing ASIO device", name: "audio", level: LogLevel.Important);
+                    scheduler.AddOnce(initCurrentDevice);
+                }
+                else
+                {
+                    Logger.Log($"Sample rate changed to {SampleRate.Value}Hz, but current device ({AudioDevice.Value}) does not support runtime sample rate changes", name: "audio", level: LogLevel.Debug);
+                }
+            };
+
             AddItem(TrackMixer = createAudioMixer(null, nameof(TrackMixer)));
             AddItem(SampleMixer = createAudioMixer(null, nameof(SampleMixer)));
 
