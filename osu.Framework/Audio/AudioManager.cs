@@ -1062,5 +1062,70 @@ namespace osu.Framework.Audio
             string deviceName = audioDevices.ElementAtOrDefault(Bass.CurrentDevice).Name;
             return $@"{GetType().ReadableName()} ({deviceName ?? "Unknown"})";
         }
+
+        /// <summary>
+        /// Gets the supported sample rates for a specific ASIO device.
+        /// This is useful for populating UI dropdowns with device-specific sample rate options.
+        /// </summary>
+        /// <param name="deviceName">The name of the ASIO device.</param>
+        /// <returns>An array of supported sample rates, or an empty array if the device is not found or not an ASIO device.</returns>
+        public double[] GetAsioDeviceSupportedSampleRates(string deviceName)
+        {
+            if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
+                return Array.Empty<double>();
+
+            try
+            {
+                foreach (var device in AsioDeviceManager.AvailableDevicesWithSampleRates)
+                {
+                    if (device.Name == deviceName)
+                        return device.SupportedSampleRates;
+                }
+            }
+            catch (DllNotFoundException e)
+            {
+                logAsioNativeUnavailableOnce(e);
+            }
+            catch (EntryPointNotFoundException e)
+            {
+                logAsioNativeUnavailableOnce(e);
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Error getting ASIO device sample rates for {deviceName}: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
+            }
+
+            return Array.Empty<double>();
+        }
+
+        /// <summary>
+        /// Gets all available ASIO devices with their supported sample rates.
+        /// This is useful for populating UI with device-specific sample rate options.
+        /// </summary>
+        /// <returns>An enumerable of tuples containing device index, name, and supported sample rates.</returns>
+        public IEnumerable<(int Index, string Name, double[] SupportedSampleRates)> GetAvailableAsioDevicesWithSampleRates()
+        {
+            if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
+                return Enumerable.Empty<(int, string, double[])>();
+
+            try
+            {
+                return AsioDeviceManager.AvailableDevicesWithSampleRates;
+            }
+            catch (DllNotFoundException e)
+            {
+                logAsioNativeUnavailableOnce(e);
+            }
+            catch (EntryPointNotFoundException e)
+            {
+                logAsioNativeUnavailableOnce(e);
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Error getting ASIO devices with sample rates: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
+            }
+
+            return Enumerable.Empty<(int, string, double[])>();
+        }
     }
 }
