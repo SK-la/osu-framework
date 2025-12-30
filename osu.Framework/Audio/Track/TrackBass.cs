@@ -202,7 +202,7 @@ namespace osu.Framework.Audio.Track
         {
             // Bass may leave us in an invalid state after the output device changes (this is true for "No sound" device)
             // if the observed state was playing before change, we should force things into a good state.
-            if (isPlayed)
+            if (isPlayed && Mixer != null)
             {
                 // While on windows, changing to "No sound" changes the playback state correctly,
                 // on macOS it is left in a playing-but-stalled state. Forcefully stopping first fixes this.
