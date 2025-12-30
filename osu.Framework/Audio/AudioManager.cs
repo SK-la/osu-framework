@@ -519,19 +519,38 @@ namespace osu.Framework.Audio
                 // Use the OS default BASS device as a fallback initialisation target.
                 // For ASIO mode, add retry logic since device initialization can be flaky
                 const int maxAsioRetries = 3;
+                bool asioInitSuccess = false;
+
                 for (int retry = 0; retry < maxAsioRetries; retry++)
                 {
                     if (trySetDevice(bass_default_device, mode, asioIndex))
-                        return;
+                    {
+                        asioInitSuccess = true;
+                        break;
+                    }
 
                     if (retry < maxAsioRetries - 1)
                     {
                         Logger.Log($"ASIO device initialization failed, retrying in 1 second (attempt {retry + 1}/{maxAsioRetries})", name: "audio", level: LogLevel.Important);
                         System.Threading.Thread.Sleep(1000);
+
+                        // Force cleanup between retries to prevent resource conflicts
+                        scheduler.Add(() =>
+                        {
+                            thread.FreeDevice(bass_default_device);
+                            System.Threading.Thread.Sleep(200);
+                        });
                     }
                 }
-                // If all retries failed, fall back to default
-                Logger.Log("ASIO device initialization failed after all retries, falling back to default device", name: "audio", level: LogLevel.Important);
+
+                if (!asioInitSuccess)
+                {
+                    Logger.Log("ASIO device initialization failed after all retries, falling back to default device", name: "audio", level: LogLevel.Important);
+                    // Fall back to default - don't try other devices as they may also fail
+                    return;
+                }
+
+                return;
             }
             else
             {

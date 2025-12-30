@@ -133,18 +133,7 @@ namespace osu.Framework.Audio.Asio
 
                 Logger.Log($"Initializing ASIO device: {deviceInfo.Name} (Driver: {deviceInfo.Driver})", LoggingTarget.Runtime, LogLevel.Debug);
 
-                // Check if this is a Voicemeeter device that might need special handling
-                bool isVoicemeeterDevice = deviceInfo.Name.Contains("Voicemeeter", StringComparison.OrdinalIgnoreCase) ||
-                                           deviceInfo.Driver.Contains("Voicemeeter", StringComparison.OrdinalIgnoreCase);
-
                 FreeDevice();
-
-                // For Voicemeeter devices, add a small delay and retry logic
-                if (isVoicemeeterDevice)
-                {
-                    Logger.Log("Detected Voicemeeter ASIO device, applying special initialization logic", LoggingTarget.Runtime, LogLevel.Debug);
-                    return InitializeVoicemeeterDevice(deviceIndex, deviceInfo, sampleRatesToTry);
-                }
 
                 // Try different initialization flags to handle ASIO initialization
                 // Use Thread flag to ensure BassAsio creates a dedicated thread with message queue
@@ -158,7 +147,7 @@ namespace osu.Framework.Audio.Asio
                 {
                     Logger.Log($"Trying ASIO initialization with flags: {flags}", LoggingTarget.Runtime, LogLevel.Debug);
 
-                    // Try initialization with retry logic for busy devices
+                    // Try initialization with retry logic for busy devices (3 attempts within 1 second)
                     int retryCount = 0;
                     const int maxRetries = 3;
 
@@ -174,14 +163,14 @@ namespace osu.Framework.Audio.Asio
                         var bassError = BassAsio.LastError;
                         Logger.Log($"ASIO initialization failed with flags {flags} (attempt {retryCount + 1}): {bassError} (Code: {(int)bassError}) - {GetAsioErrorDescription((int)bassError)}", LoggingTarget.Runtime, LogLevel.Important);
 
-                        // If device is busy, wait and retry
+                        // If device is busy, wait and retry (100ms delay for quick retries within 1 second total)
                         if ((int)bassError == 3 || bassError == Errors.Busy)
                         {
                             retryCount++;
                             if (retryCount < maxRetries)
                             {
-                                Logger.Log($"Device busy, waiting 500ms before retry {retryCount + 1}/{maxRetries}", LoggingTarget.Runtime, LogLevel.Important);
-                                System.Threading.Thread.Sleep(500);
+                                Logger.Log($"Device busy, waiting 100ms before retry {retryCount + 1}/{maxRetries}", LoggingTarget.Runtime, LogLevel.Important);
+                                System.Threading.Thread.Sleep(100);
                                 continue;
                             }
                         }
@@ -243,101 +232,6 @@ namespace osu.Framework.Audio.Asio
         }
 
         /// <summary>
-        /// Special initialization logic for Voicemeeter ASIO devices.
-        /// Voicemeeter devices often require specific timing and retry logic.
-        /// </summary>
-        private static bool InitializeVoicemeeterDevice(int deviceIndex, AsioDeviceInfo deviceInfo, double[]? sampleRatesToTry = null)
-        {
-            Logger.Log($"Initializing Voicemeeter ASIO device with special logic: {deviceInfo.Name}", LoggingTarget.Runtime, LogLevel.Debug);
-
-            // Voicemeeter devices may need a brief moment to be ready
-            // Try initialization with increasing delays
-            int[] retryDelays = { 0, 100, 500, 1000 }; // milliseconds
-
-            foreach (int delay in retryDelays)
-            {
-                if (delay > 0)
-                {
-                    Logger.Log($"Waiting {delay}ms before retrying Voicemeeter initialization", LoggingTarget.Runtime, LogLevel.Debug);
-                    System.Threading.Thread.Sleep(delay);
-                }
-
-                // Try different initialization flags for Voicemeeter
-                AsioInitFlags[] initFlagsToTry = new[]
-                {
-                    AsioInitFlags.Thread, // Primary: Use dedicated thread with message queue
-                    AsioInitFlags.JoinOrder | AsioInitFlags.Thread, // Secondary: JoinOrder + Thread
-                    AsioInitFlags.JoinOrder // Last resort: JoinOrder only
-                };
-
-                foreach (var flags in initFlagsToTry)
-                {
-                    Logger.Log($"Trying Voicemeeter ASIO initialization with flags: {flags} (delay: {delay}ms)", LoggingTarget.Runtime, LogLevel.Debug);
-
-                    if (BassAsio.Init(deviceIndex, flags))
-                    {
-                        Logger.Log($"Voicemeeter ASIO device initialized successfully with flags: {flags} after {delay}ms delay", LoggingTarget.Runtime, LogLevel.Debug);
-
-                        // Try sample rates in order
-                        double[] ratesToTry = sampleRatesToTry ?? new double[] { 44100.0, 48000.0 };
-                        double successfulRate = 0;
-
-                        foreach (double rate in ratesToTry)
-                        {
-                            if (BassAsio.CheckRate(rate))
-                            {
-                                BassAsio.Rate = rate;
-                                successfulRate = rate;
-                                Logger.Log($"Set Voicemeeter device sample rate to {rate}Hz", LoggingTarget.Runtime, LogLevel.Debug);
-                                break;
-                            }
-                            else
-                            {
-                                Logger.Log($"Voicemeeter device does not support {rate}Hz sample rate", LoggingTarget.Runtime, LogLevel.Debug);
-                            }
-                        }
-
-                        if (successfulRate == 0)
-                        {
-                            Logger.Log("Voicemeeter device does not support any of the requested sample rates", LoggingTarget.Runtime, LogLevel.Error);
-                            BassAsio.Free();
-                            continue; // Try next flag combination
-                        }
-
-                        return true;
-                    }
-
-                    var bassError = BassAsio.LastError;
-                    Logger.Log($"Voicemeeter ASIO initialization failed with flags {flags} (delay: {delay}ms): {bassError} (Code: {(int)bassError}) - {GetAsioErrorDescription((int)bassError)}", LoggingTarget.Runtime, LogLevel.Important);
-
-                    // For Voicemeeter, if we get certain errors, try a longer delay
-                    if ((int)bassError == 3 || (int)bassError == 23) // Driver unavailable or Device not present
-                    {
-                        Logger.Log("Voicemeeter driver unavailable or device not present, this may indicate Voicemeeter software is not fully ready", LoggingTarget.Runtime, LogLevel.Important);
-                        break; // Break flag loop and try next delay
-                    }
-
-                    // If we get BufferLost error, try different approach
-                    if (bassError == Errors.BufferLost)
-                    {
-                        Logger.Log("BufferLost error detected for Voicemeeter, trying alternative initialization approach", LoggingTarget.Runtime, LogLevel.Important);
-                        FreeDevice();
-                        // Driver reset handled by FreeDevice(), no sleep needed in audio thread
-                    }
-                }
-            }
-
-            // If all attempts failed, provide specific guidance for Voicemeeter
-            Logger.Log($"All Voicemeeter ASIO initialization attempts failed for device {deviceIndex}. Please ensure:", LoggingTarget.Runtime, LogLevel.Important);
-            Logger.Log($"1. Voicemeeter application is running and fully loaded", LoggingTarget.Runtime, LogLevel.Important);
-            Logger.Log($"2. The ASIO interface is enabled in Voicemeeter settings", LoggingTarget.Runtime, LogLevel.Important);
-            Logger.Log($"3. No other applications are using the Voicemeeter ASIO interface", LoggingTarget.Runtime, LogLevel.Important);
-            Logger.Log($"4. Try restarting Voicemeeter and waiting a few seconds before selecting the device", LoggingTarget.Runtime, LogLevel.Important);
-
-            return false;
-        }
-
-        /// <summary>
         /// Frees the currently initialized ASIO device.
         /// </summary>
         public static void FreeDevice()
@@ -359,6 +253,33 @@ namespace osu.Framework.Audio.Asio
             catch (Exception ex)
             {
                 Logger.Log($"Exception during ASIO device freeing: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
+            }
+        }
+
+        /// <summary>
+        /// Forces a complete reset of ASIO state, useful for recovery from error conditions.
+        /// </summary>
+        public static void ForceReset()
+        {
+            try
+            {
+                Logger.Log("Forcing complete ASIO state reset", LoggingTarget.Runtime, LogLevel.Debug);
+
+                // Stop and free any existing ASIO device
+                BassAsio.Stop();
+                BassAsio.Free();
+
+                // Clear the global mixer handle
+                globalMixerHandle = 0;
+
+                // Add longer delay to ensure complete reset
+                System.Threading.Thread.Sleep(200);
+
+                Logger.Log("ASIO state reset completed", LoggingTarget.Runtime, LogLevel.Debug);
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Exception during ASIO force reset: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
             }
         }
 

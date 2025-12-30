@@ -223,7 +223,8 @@ namespace osu.Framework.Threading
             if (outputMode == AudioThreadOutputMode.Asio)
             {
                 Logger.Log("ASIO mode detected, adding extra delay before device initialization", name: "audio", level: LogLevel.Debug);
-                System.Threading.Thread.Sleep(300);
+                // Increase delay to ensure complete device release
+                System.Threading.Thread.Sleep(500);
             }
 
             // Try to initialise the device, or request a re-initialise.
@@ -281,14 +282,15 @@ namespace osu.Framework.Threading
 
             int selectedDevice = Bass.CurrentDevice;
 
+            // For ASIO devices, free ASIO first before freeing BASS to ensure proper cleanup order
+            freeAsio();
+            freeWasapi();
+
             if (canSelectDevice(deviceId))
             {
                 Bass.CurrentDevice = deviceId;
                 Bass.Free();
             }
-
-            freeAsio();
-            freeWasapi();
 
             if (selectedDevice != deviceId && canSelectDevice(selectedDevice))
                 Bass.CurrentDevice = selectedDevice;
@@ -724,22 +726,45 @@ namespace osu.Framework.Threading
         {
             try
             {
+                // Stop ASIO device first
                 AsioDeviceManager.StopDevice();
+
+                // Small delay after stop to let the device settle
+                System.Threading.Thread.Sleep(50);
+
+                // Free ASIO device
                 AsioDeviceManager.FreeDevice();
             }
-            catch
+            catch (Exception ex)
             {
+                Logger.Log($"Exception during ASIO device cleanup: {ex.Message}, attempting force reset", name: "audio", level: LogLevel.Error);
+                try
+                {
+                    AsioDeviceManager.ForceReset();
+                }
+                catch (Exception resetEx)
+                {
+                    Logger.Log($"Force reset also failed: {resetEx.Message}", name: "audio", level: LogLevel.Error);
+                }
             }
 
+            // Clean up mixer handle
             if (globalMixerHandle.Value != null)
             {
-                Bass.StreamFree(globalMixerHandle.Value.Value);
+                try
+                {
+                    Bass.StreamFree(globalMixerHandle.Value.Value);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log($"Exception freeing ASIO mixer: {ex.Message}", name: "audio", level: LogLevel.Error);
+                }
                 globalMixerHandle.Value = null;
             }
 
-            // Add additional delay after freeing ASIO device to ensure complete release
+            // Add longer delay after freeing ASIO device to ensure complete release
             // This prevents device busy errors when switching between ASIO devices
-            System.Threading.Thread.Sleep(200);
+            System.Threading.Thread.Sleep(300);
         }
 
         internal enum AudioThreadOutputMode
