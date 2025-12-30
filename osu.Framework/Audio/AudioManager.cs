@@ -361,6 +361,20 @@ namespace osu.Framework.Audio
                 if (syncingSelection)
                     return;
 
+                // Sync the ASIO config sample rate to match unified sample rate
+                if (Math.Abs(AsioConfig.SampleRate.Value - SampleRate.Value) > 0.1) // Allow small floating point differences
+                {
+                    syncingSelection = true;
+                    try
+                    {
+                        AsioConfig.SampleRate.Value = SampleRate.Value;
+                    }
+                    finally
+                    {
+                        syncingSelection = false;
+                    }
+                }
+
                 // Only reinitialize if we're currently using an ASIO device (only ASIO supports runtime sample rate changes)
                 if (hasTypeSuffix(AudioDevice.Value) && tryParseSuffixed(AudioDevice.Value, type_asio, out string _))
                 {
@@ -370,6 +384,38 @@ namespace osu.Framework.Audio
                 else
                 {
                     Logger.Log($"Sample rate changed to {SampleRate.Value}Hz, but current device ({AudioDevice.Value}) does not support runtime sample rate changes", name: "audio", level: LogLevel.Debug);
+                }
+            };
+
+            // Listen for ASIO-specific sample rate changes and reinitialize device if supported
+            AsioConfig.SampleRate.ValueChanged += _ =>
+            {
+                if (syncingSelection)
+                    return;
+
+                // Sync the unified sample rate to match ASIO config
+                if (Math.Abs(SampleRate.Value - AsioConfig.SampleRate.Value) > 0.1) // Allow small floating point differences
+                {
+                    syncingSelection = true;
+                    try
+                    {
+                        SampleRate.Value = AsioConfig.SampleRate.Value;
+                    }
+                    finally
+                    {
+                        syncingSelection = false;
+                    }
+                }
+
+                // Only reinitialize if we're currently using an ASIO device
+                if (hasTypeSuffix(AudioDevice.Value) && tryParseSuffixed(AudioDevice.Value, type_asio, out string _))
+                {
+                    Logger.Log($"ASIO sample rate changed to {AsioConfig.SampleRate.Value}Hz, reinitializing ASIO device", name: "audio", level: LogLevel.Important);
+                    scheduler.AddOnce(initCurrentDevice);
+                }
+                else
+                {
+                    Logger.Log($"ASIO sample rate changed to {AsioConfig.SampleRate.Value}Hz, but current device ({AudioDevice.Value}) does not support runtime sample rate changes", name: "audio", level: LogLevel.Debug);
                 }
             };
 
