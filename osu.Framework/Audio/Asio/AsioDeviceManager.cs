@@ -245,7 +245,7 @@ namespace osu.Framework.Audio.Asio
                     if (tryInitializeDevice(deviceIndex, flags))
                     {
                         // 尝试采样率
-                        double[] ratesToTry = sampleRatesToTry ?? new[] { 44100.0, 48000.0 };
+                        double[] ratesToTry = sampleRatesToTry ?? SUPPORTED_SAMPLE_RATES;
                         double successfulRate = 0;
 
                         foreach (double rate in ratesToTry)

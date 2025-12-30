@@ -4,7 +4,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -27,13 +26,6 @@ namespace osu.Framework.Threading
     {
         private static int wasapiNativeUnavailableLogged;
         private static int asioResolverRegistered;
-
-        private const uint SEM_FAILCRITICALERRORS = 0x0001;
-        private const uint SEM_NOGPFAULTERRORBOX = 0x0002;
-        private const uint SEM_NOOPENFILEERRORBOX = 0x8000;
-
-        [DllImport("kernel32.dll")]
-        private static extern uint SetErrorMode(uint mode);
 
         public AudioThread()
             : base(name: "Audio")
@@ -306,7 +298,12 @@ namespace osu.Framework.Threading
         internal static void PreloadBass()
         {
             if (RuntimeInfo.OS == RuntimeInfo.Platform.Windows)
-                registerBassAsioResolver();
+            {
+                if (Interlocked.Exchange(ref asioResolverRegistered, 1) == 1)
+                    return;
+
+                NativeLibrary.SetDllImportResolver(typeof(BassAsio).Assembly, resolveBassAsio);
+            }
 
             if (RuntimeInfo.OS == RuntimeInfo.Platform.Linux)
             {
@@ -315,61 +312,15 @@ namespace osu.Framework.Threading
             }
         }
 
-        private static void registerBassAsioResolver()
-        {
-            if (Interlocked.Exchange(ref asioResolverRegistered, 1) == 1)
-                return;
-
-            try
-            {
-                NativeLibrary.SetDllImportResolver(typeof(BassAsio).Assembly, resolveBassAsio);
-            }
-            catch (InvalidOperationException)
-            {
-                // Resolver was already registered elsewhere.
-            }
-        }
-
         private static IntPtr resolveBassAsio(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
         {
-            if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
-                return IntPtr.Zero;
-
             if (!libraryName.Equals("bassasio", StringComparison.OrdinalIgnoreCase)
                 && !libraryName.Equals("bassasio.dll", StringComparison.OrdinalIgnoreCase))
                 return IntPtr.Zero;
 
-            // Prefer loading from known output directories (x64/x86). This avoids relying on the default DLL search path,
-            // which doesn't include these subdirectories, and also prevents Windows from showing error dialogs.
-            string baseDir = RuntimeInfo.StartupDirectory;
-            string arch = IntPtr.Size == 8 ? "x64" : "x86";
-            string runtimeRid = IntPtr.Size == 8 ? "win-x64" : "win-x86";
-
-            string[] candidatePaths =
-            {
-                Path.Combine(baseDir, "runtimes", runtimeRid, "native", "bassasio.dll"),
-                Path.Combine(baseDir, arch, "bassasio.dll"),
-            };
-
-            foreach (string path in candidatePaths)
-            {
-                if (!File.Exists(path))
-                    continue;
-
-                uint oldMode = SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
-
-                try
-                {
-                    return NativeLibrary.Load(path);
-                }
-                finally
-                {
-                    SetErrorMode(oldMode);
-                }
-            }
-
-            // Throw to avoid the runtime falling back to default resolution, which may trigger a Windows error dialog.
-            throw new DllNotFoundException($"bassasio.dll was not found in expected locations. Checked: {string.Join("; ", candidatePaths)}");
+            // Let ManagedBass.Asio handle the DLL loading with its default mechanism
+            // This removes the need for hardcoded paths and improves cross-platform compatibility
+            return IntPtr.Zero; // Return zero to let the runtime use default resolution
         }
 
         private bool attemptWasapiInitialisation() => attemptWasapiInitialisation(Bass.CurrentDevice, exclusive: false);
@@ -378,6 +329,8 @@ namespace osu.Framework.Threading
         {
             if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
                 return false;
+
+            Logger.Log("Attempting local BassWasapi initialisation");
 
             try
             {
@@ -614,22 +567,18 @@ namespace osu.Framework.Threading
 
         private bool initAsio(int asioDeviceIndex, double? preferredSampleRate = null)
         {
-            if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
-                return false;
-
             Logger.Log($"Attempting ASIO initialisation for device {asioDeviceIndex}", name: "audio", level: LogLevel.Verbose);
 
             freeAsio();
 
             // Use the new AsioDeviceManager for initialization
             // Use the unified sample rate from AudioManager
-            double[] commonRates = { 48000.0, 44100.0, 96000.0, 176400.0, 192000.0 };
             List<double> ratesToTry = new List<double>();
 
             if (preferredSampleRate.HasValue)
                 ratesToTry.Add(preferredSampleRate.Value);
 
-            foreach (double rate in commonRates)
+            foreach (double rate in AsioDeviceManager.SUPPORTED_SAMPLE_RATES)
             {
                 if (!ratesToTry.Contains(rate))
                     ratesToTry.Add(rate);
@@ -719,6 +668,9 @@ namespace osu.Framework.Threading
 
         private void freeAsio()
         {
+            if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
+                return;
+
             try
             {
                 // Stop ASIO device first
