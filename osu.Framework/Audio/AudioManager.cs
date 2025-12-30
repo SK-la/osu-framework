@@ -14,7 +14,6 @@ using ManagedBass;
 using ManagedBass.Fx;
 using ManagedBass.Mix;
 using AsioDeviceManager = osu.Framework.Audio.Asio.AsioDeviceManager;
-using AsioConfig = osu.Framework.Audio.Asio.AsioConfig;
 using osu.Framework.Audio.Mixing;
 using osu.Framework.Audio.Mixing.Bass;
 using osu.Framework.Audio.Sample;
@@ -46,12 +45,6 @@ namespace osu.Framework.Audio
         private const int bass_default_device = 1;
 
         /// <summary>
-        /// Preferred sample rate for ASIO devices.
-        /// This is set by the UI and used during ASIO device initialization.
-        /// </summary>
-        private static double? preferredAsioSampleRate;
-
-        /// <summary>
         /// The manager component responsible for audio tracks (e.g. songs).
         /// </summary>
         public ITrackStore Tracks => globalTrackStore.Value;
@@ -77,19 +70,14 @@ namespace osu.Framework.Audio
         public readonly AudioMixer SampleMixer;
 
         /// <summary>
-        /// Configuration for ASIO audio settings.
-        /// </summary>
-        public readonly AsioConfig AsioConfig = new AsioConfig();
-
-        /// <summary>
-        /// Unified sample rate configuration for all audio output modes.
-        /// This replaces the need for separate sample rate management in different places.
+        /// 采样率，用于ASIO设备的初始化和运行时更改。
         /// </summary>
         public readonly Bindable<double> SampleRate = new Bindable<double>(48000.0);
 
         /// <summary>
-        /// The names of all available audio devices.
+        /// ASIO设备的首选采样率, 用于设备的初始化。
         /// </summary>
+        private static double? preferredAsioSampleRate;
 
         /// <summary>
         /// The names of all available audio devices.
@@ -116,8 +104,7 @@ namespace osu.Framework.Audio
         public event Action<string> OnLostDevice;
 
         /// <summary>
-        /// Is fired whenever an ASIO device is successfully initialized with a specific sample rate.
-        /// Provides the actual sample rate that was used.
+        /// 在ASIO设备成功初始化后触发，提供实际使用的采样率。
         /// </summary>
         public Action<double>? OnAsioDeviceInitialized;
 
@@ -182,10 +169,20 @@ namespace osu.Framework.Audio
 
         // Mutated by multiple threads, must be thread safe.
         private ImmutableArray<DeviceInfo> audioDevices = ImmutableArray<DeviceInfo>.Empty;
-        private ImmutableList<string> bassDeviceNames = ImmutableList<string>.Empty;
+        private ImmutableList<string> audioDeviceNames = ImmutableList<string>.Empty;
+
+        protected enum AudioOutputMode
+        {
+            Default,
+            WasapiShared,
+            WasapiExclusive,
+            Asio,
+        }
 
         private static int asioNativeUnavailableLogged;
 
+        private const string legacy_type_bass = "BASS";
+        private const string legacy_type_wasapi_shared = "WASAPI Shared";
         private const string type_wasapi_exclusive = "WASAPI Exclusive";
         private const string type_asio = "ASIO";
 
@@ -220,17 +217,6 @@ namespace osu.Framework.Audio
                 bindable.Value = newValue;
         }
 
-        protected enum AudioOutputMode
-        {
-            Default,
-            WasapiShared,
-            WasapiExclusive,
-            Asio,
-        }
-
-        private const string legacy_type_bass = "BASS";
-        private const string legacy_type_wasapi_shared = "WASAPI Shared";
-
         private Scheduler scheduler => thread.Scheduler;
 
         private Scheduler eventScheduler => EventScheduler ?? scheduler;
@@ -259,13 +245,13 @@ namespace osu.Framework.Audio
         }
 
         /// <summary>
-        /// Sets the preferred sample rate for ASIO devices using the AsioConfig.
+        /// Sets the preferred sample rate for ASIO devices.
         /// This will be used during ASIO device initialization.
         /// </summary>
         /// <param name="sampleRate">The preferred sample rate in Hz.</param>
         public void SetPreferredAsioSampleRate(double sampleRate)
         {
-            AsioConfig.SampleRate.Value = sampleRate;
+            SampleRate.Value = sampleRate;
         }
 
         /// <summary>
@@ -358,64 +344,15 @@ namespace osu.Framework.Audio
             // Listen for unified sample rate changes and reinitialize device if supported
             SampleRate.ValueChanged += _ =>
             {
-                if (syncingSelection)
-                    return;
-
-                // Sync the ASIO config sample rate to match unified sample rate
-                if (Math.Abs(AsioConfig.SampleRate.Value - SampleRate.Value) > 0.1) // Allow small floating point differences
-                {
-                    syncingSelection = true;
-                    try
-                    {
-                        AsioConfig.SampleRate.Value = SampleRate.Value;
-                    }
-                    finally
-                    {
-                        syncingSelection = false;
-                    }
-                }
-
                 // Only reinitialize if we're currently using an ASIO device (only ASIO supports runtime sample rate changes)
                 if (hasTypeSuffix(AudioDevice.Value) && tryParseSuffixed(AudioDevice.Value, type_asio, out string _))
                 {
-                    Logger.Log($"Unified sample rate changed to {SampleRate.Value}Hz, reinitializing ASIO device", name: "audio", level: LogLevel.Important);
+                    Logger.Log($"Sample rate changed to {SampleRate.Value}Hz, reinitializing ASIO device", name: "audio", level: LogLevel.Important);
                     scheduler.AddOnce(initCurrentDevice);
                 }
                 else
                 {
                     Logger.Log($"Sample rate changed to {SampleRate.Value}Hz, but current device ({AudioDevice.Value}) does not support runtime sample rate changes", name: "audio", level: LogLevel.Debug);
-                }
-            };
-
-            // Listen for ASIO-specific sample rate changes and reinitialize device if supported
-            AsioConfig.SampleRate.ValueChanged += _ =>
-            {
-                if (syncingSelection)
-                    return;
-
-                // Sync the unified sample rate to match ASIO config
-                if (Math.Abs(SampleRate.Value - AsioConfig.SampleRate.Value) > 0.1) // Allow small floating point differences
-                {
-                    syncingSelection = true;
-                    try
-                    {
-                        SampleRate.Value = AsioConfig.SampleRate.Value;
-                    }
-                    finally
-                    {
-                        syncingSelection = false;
-                    }
-                }
-
-                // Only reinitialize if we're currently using an ASIO device
-                if (hasTypeSuffix(AudioDevice.Value) && tryParseSuffixed(AudioDevice.Value, type_asio, out string _))
-                {
-                    Logger.Log($"ASIO sample rate changed to {AsioConfig.SampleRate.Value}Hz, reinitializing ASIO device", name: "audio", level: LogLevel.Important);
-                    scheduler.AddOnce(initCurrentDevice);
-                }
-                else
-                {
-                    Logger.Log($"ASIO sample rate changed to {AsioConfig.SampleRate.Value}Hz, but current device ({AudioDevice.Value}) does not support runtime sample rate changes", name: "audio", level: LogLevel.Debug);
                 }
             };
 
@@ -619,14 +556,14 @@ namespace osu.Framework.Audio
             else
             {
                 // try using the specified device
-                int deviceIndex = bassDeviceNames.FindIndex(d => d == deviceName);
+                int deviceIndex = audioDeviceNames.FindIndex(d => d == deviceName);
                 if (deviceIndex >= 0 && trySetDevice(BASS_INTERNAL_DEVICE_COUNT + deviceIndex, mode, asioIndex)) return;
             }
 
             // try using the system default if there is any device present.
             // mobiles are an exception as the built-in speakers may not be provided as an audio device name,
             // but they are still provided by BASS under the internal device name "Default".
-            if ((bassDeviceNames.Count > 0 || RuntimeInfo.IsMobile) && trySetDevice(bass_default_device, mode, asioIndex)) return;
+            if ((audioDeviceNames.Count > 0 || RuntimeInfo.IsMobile) && trySetDevice(bass_default_device, mode, asioIndex)) return;
 
             // If an explicit selection failed, revert to Default and try again in default output mode.
             // Keep checkbox state unless Exclusive/ASIO was chosen.
@@ -736,9 +673,8 @@ namespace osu.Framework.Audio
             }
         }
 
-        private static bool hasTypeSuffix(string value)
-            => !string.IsNullOrEmpty(value) && (value.EndsWith($" ({type_wasapi_exclusive})", StringComparison.Ordinal)
-               || value.EndsWith($" ({type_asio})", StringComparison.Ordinal));
+        private static bool hasTypeSuffix(string value) => !string.IsNullOrEmpty(value) && (value.EndsWith($" ({type_wasapi_exclusive})", StringComparison.Ordinal)
+                                                                                            || value.EndsWith($" ({type_asio})", StringComparison.Ordinal));
 
         /// <summary>
         /// This method calls <see cref="Bass.Init(int, int, DeviceInitFlags, IntPtr, IntPtr)"/>.
@@ -784,7 +720,7 @@ namespace osu.Framework.Audio
 
                 try
                 {
-                    innerSuccess = thread.InitDevice(device, toThreadOutputMode(outputMode), asioDeviceIndex, outputMode == AudioOutputMode.Asio ? (double?)AsioConfig.SampleRate.Value : null);
+                    innerSuccess = thread.InitDevice(device, toThreadOutputMode(outputMode), asioDeviceIndex, outputMode == AudioOutputMode.Asio ? (double?)SampleRate.Value : null);
                 }
                 catch (Exception e)
                 {
@@ -804,13 +740,14 @@ namespace osu.Framework.Audio
 
                 if (alreadyInitialised)
                 {
-                    // For ASIO mode, if InitDevice fails, this should be treated as a failure
-                    // since the ASIO device may not be properly initialized even if BASS is already initialized
+                    // 对于ASIO模式，如果InitDevice失败，则应将其视为失败
+                    // 因为即使BASS已经初始化，ASIO设备也可能无法正确初始化
                     if (outputMode == AudioOutputMode.Asio && !innerSuccess)
                     {
                         Logger.Log("ASIO device initialization failed even though BASS was already initialized", name: "audio", level: LogLevel.Error);
                         return false;
                     }
+
                     return true;
                 }
 
@@ -866,8 +803,8 @@ namespace osu.Framework.Audio
             // Bass should always be providing "No sound" and "Default" device.
             Trace.Assert(audioDevices.Length >= BASS_INTERNAL_DEVICE_COUNT, "Bass did not provide any audio devices.");
 
-            var oldDeviceNames = bassDeviceNames;
-            var newDeviceNames = bassDeviceNames = audioDevices.Skip(BASS_INTERNAL_DEVICE_COUNT).Where(d => d.IsEnabled).Select(d => d.Name).ToImmutableList();
+            var oldDeviceNames = audioDeviceNames;
+            var newDeviceNames = audioDeviceNames = audioDevices.Skip(BASS_INTERNAL_DEVICE_COUNT).Where(d => d.IsEnabled).Select(d => d.Name).ToImmutableList();
 
             scheduler.Add(() =>
             {
@@ -898,7 +835,7 @@ namespace osu.Framework.Audio
             var entries = new List<string>();
 
             // Base BASS devices (historical UX: raw device names).
-            entries.AddRange(bassDeviceNames);
+            entries.AddRange(audioDeviceNames);
 
             if (RuntimeInfo.OS == RuntimeInfo.Platform.Windows)
             {
@@ -907,7 +844,7 @@ namespace osu.Framework.Audio
                     return entries;
 
                 // Only append extra entries; shared WASAPI remains controlled by the checkbox.
-                entries.AddRange(bassDeviceNames.Select(d => formatEntry(d, type_wasapi_exclusive)));
+                entries.AddRange(audioDeviceNames.Select(d => formatEntry(d, type_wasapi_exclusive)));
 
                 // ASIO drivers.
                 try

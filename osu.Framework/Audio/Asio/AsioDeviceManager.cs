@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using ManagedBass;
 using ManagedBass.Asio;
 using osu.Framework.Logging;
@@ -11,260 +12,271 @@ using osu.Framework.Logging;
 namespace osu.Framework.Audio.Asio
 {
     /// <summary>
-    /// Audio format configuration for ASIO devices.
-    /// </summary>
-    internal static class AsioAudioFormat
-    {
-        /// <summary>
-        /// Common sample rates supported by most ASIO devices.
-        /// Prioritizes 48kHz for new audio modes, with 44.1kHz as fallback.
-        /// </summary>
-        public static readonly double[] SupportedSampleRates = { 48000, 44100, 96000, 176400, 192000 };
-
-        /// <summary>
-        /// Default sample rate to use when none is specified.
-        /// Uses 48kHz as the primary default for new audio modes.
-        /// </summary>
-        public const double DEFAULT_SAMPLE_RATE = 48000;
-
-        /// <summary>
-        /// Checks if a sample rate is commonly supported.
-        /// </summary>
-        public static bool IsSupportedSampleRate(double sampleRate)
-        {
-            foreach (double rate in SupportedSampleRates)
-            {
-                if (Math.Abs(rate - sampleRate) < 1)
-                    return true;
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// Gets the closest supported sample rate to the requested rate.
-        /// </summary>
-        public static double GetClosestSupportedSampleRate(double requestedRate)
-        {
-            double closest = DEFAULT_SAMPLE_RATE;
-            double minDiff = double.MaxValue;
-
-            foreach (double rate in SupportedSampleRates)
-            {
-                double diff = Math.Abs(rate - requestedRate);
-                if (diff < minDiff)
-                {
-                    minDiff = diff;
-                    closest = rate;
-                }
-            }
-
-            return closest;
-        }
-    }
-
-    /// <summary>
-    /// Manages ASIO audio devices and their initialization.
+    /// 管理ASIO音频设备及其初始化。
     /// </summary>
     public static class AsioDeviceManager
     {
         /// <summary>
-        /// The global mixer handle for ASIO audio routing.
-        /// This is set by the audio thread when ASIO device is initialized.
+        /// 常见采样率列表, 用于尝试验证设备支持的采样率。
+        /// 按优先级排序，48kHz优先于44.1kHz。
         /// </summary>
-        private static int globalMixerHandle = 0;
+        public static readonly double[] SUPPORTED_SAMPLE_RATES = { 48000, 44100, 96000, 176400, 192000, 384000 };
 
         /// <summary>
-        /// Sets the global mixer handle for ASIO audio routing.
+        /// 未指定、或设置采样率失败时，使用默认采样率48kHz，性能较好。
         /// </summary>
-        /// <param name="mixerHandle">The handle of the global mixer.</param>
+        public const double DEFAULT_SAMPLE_RATE = 48000;
+
+        /// <summary>
+        /// 最大重试次数，用于处理设备繁忙的情况。
+        /// </summary>
+        private const int MAX_RETRY_COUNT = 3;
+
+        /// <summary>
+        /// 重试间隔时间（毫秒）。
+        /// </summary>
+        private const int RETRY_DELAY_MS = 100;
+
+        /// <summary>
+        /// 设备释放延迟时间（毫秒）。
+        /// </summary>
+        private const int DEVICE_FREE_DELAY_MS = 100;
+
+        /// <summary>
+        /// 强制重置延迟时间（毫秒）。
+        /// </summary>
+        private const int FORCE_RESET_DELAY_MS = 200;
+
+        /// <summary>
+        /// 采样率容差，用于验证设置是否成功。
+        /// </summary>
+        private const double SAMPLE_RATE_TOLERANCE = 1.0;
+
+        /// <summary>
+        /// 静音帧日志间隔。
+        /// </summary>
+        private const int SILENCE_LOG_INTERVAL = 200;
+
+        /// <summary>
+        /// ASIO音频路由的全局混音器句柄。
+        /// 当ASIO设备初始化时，由音频线程设置。
+        /// </summary>
+        private static int globalMixerHandle;
+
+        /// <summary>
+        /// 设置ASIO音频路由的全局混音器句柄。
+        /// </summary>
+        /// <param name="mixerHandle">混音器的句柄。</param>
         public static void SetGlobalMixerHandle(int mixerHandle)
         {
             globalMixerHandle = mixerHandle;
             Logger.Log($"ASIO global mixer handle set: {mixerHandle}", LoggingTarget.Runtime, LogLevel.Debug);
         }
+
         /// <summary>
-        /// Gets a list of available ASIO devices.
+        /// 验证设备索引是否有效。
+        /// </summary>
+        /// <param name="deviceIndex">要验证的设备索引。</param>
+        /// <returns>如果索引有效则为true，否则为false。</returns>
+        private static bool isValidDeviceIndex(int deviceIndex)
+        {
+            return deviceIndex >= 0 && deviceIndex < BassAsio.DeviceCount;
+        }
+
+        /// <summary>
+        /// 安全地获取ASIO设备信息。
+        /// </summary>
+        /// <param name="deviceIndex">设备索引。</param>
+        /// <param name="deviceInfo">输出设备信息。</param>
+        /// <returns>如果获取成功则为true，否则为false。</returns>
+        private static bool tryGetDeviceInfo(int deviceIndex, out AsioDeviceInfo deviceInfo)
+        {
+            deviceInfo = default;
+
+            if (!isValidDeviceIndex(deviceIndex))
+            {
+                Logger.Log($"Invalid ASIO device index: {deviceIndex} (DeviceCount: {BassAsio.DeviceCount})", LoggingTarget.Runtime, LogLevel.Error);
+                return false;
+            }
+
+            if (!BassAsio.GetDeviceInfo(deviceIndex, out deviceInfo))
+            {
+                Logger.Log($"Failed to get ASIO device info for index {deviceIndex}", LoggingTarget.Runtime, LogLevel.Error);
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// 尝试初始化ASIO设备，支持重试逻辑。
+        /// </summary>
+        /// <param name="deviceIndex">设备索引。</param>
+        /// <param name="flags">初始化标志。</param>
+        /// <returns>如果初始化成功则为true，否则为false。</returns>
+        private static bool tryInitializeDevice(int deviceIndex, AsioInitFlags flags)
+        {
+            for (int retryCount = 0; retryCount < MAX_RETRY_COUNT; retryCount++)
+            {
+                if (BassAsio.Init(deviceIndex, flags))
+                {
+                    Logger.Log($"ASIO device initialized successfully with flags: {flags} (attempt {retryCount + 1})", LoggingTarget.Runtime, LogLevel.Debug);
+                    return true;
+                }
+
+                var bassError = BassAsio.LastError;
+                Logger.Log($"ASIO initialization failed with flags {flags} (attempt {retryCount + 1}): {bassError} (Code: {(int)bassError}) - {getAsioErrorDescription((int)bassError)}",
+                    LoggingTarget.Runtime, LogLevel.Important);
+
+                // 如果设备繁忙，等待并重试
+                if ((int)bassError == 3 || bassError == Errors.Busy)
+                {
+                    if (retryCount < MAX_RETRY_COUNT - 1)
+                    {
+                        Logger.Log($"Device busy, waiting {RETRY_DELAY_MS}ms before retry {retryCount + 1}/{MAX_RETRY_COUNT}", LoggingTarget.Runtime, LogLevel.Important);
+                        Thread.Sleep(RETRY_DELAY_MS);
+                        continue;
+                    }
+                }
+
+                // 对于其他错误，不重试
+                break;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 尝试设置采样率。
+        /// </summary>
+        /// <param name="rate">要设置的采样率。</param>
+        /// <returns>如果设置成功则为true，否则为false。</returns>
+        private static bool trySetSampleRate(double rate)
+        {
+            if (!BassAsio.CheckRate(rate))
+            {
+                Logger.Log($"Device does not support {rate}Hz sample rate", LoggingTarget.Runtime, LogLevel.Debug);
+                return false;
+            }
+
+            BassAsio.Rate = rate;
+
+            var rateError = BassAsio.LastError;
+
+            if (rateError != Errors.OK)
+            {
+                Logger.Log($"Failed to set ASIO device sample rate to {rate}Hz: {rateError} (Code: {(int)rateError})", LoggingTarget.Runtime, LogLevel.Error);
+                return false;
+            }
+
+            double actualRate = BassAsio.Rate;
+
+            if (Math.Abs(actualRate - rate) >= SAMPLE_RATE_TOLERANCE)
+            {
+                Logger.Log($"Failed to set ASIO device sample rate to {rate}Hz (actual: {actualRate}Hz)", LoggingTarget.Runtime, LogLevel.Error);
+                return false;
+            }
+
+            Logger.Log($"Set ASIO device sample rate to {rate}Hz", LoggingTarget.Runtime, LogLevel.Debug);
+            return true;
+        }
+
+        /// <summary>
+        /// 获取可用ASIO设备的列表。
         /// </summary>
         public static IEnumerable<(int Index, string Name)> AvailableDevices
         {
             get
             {
-                var devices = new List<(int, string)>();
-
                 int deviceCount = BassAsio.DeviceCount;
+
                 for (int i = 0; i < deviceCount; i++)
                 {
-                    var info = new AsioDeviceInfo();
-                    if (BassAsio.GetDeviceInfo(i, out info))
+                    if (BassAsio.GetDeviceInfo(i, out AsioDeviceInfo info))
                     {
-                        devices.Add((i, info.Name));
+                        yield return (i, info.Name);
                     }
                 }
-
-                return devices;
             }
         }
 
         /// <summary>
-        /// Gets a list of available ASIO devices with their supported sample rates.
-        /// This is useful for populating UI dropdowns with device-specific sample rate options.
+        /// 获取带有支持采样率的可用ASIO设备列表。
+        /// 注意：此操作可能较慢，因为需要为每个设备查询支持的采样率。
         /// </summary>
         public static IEnumerable<(int Index, string Name, double[] SupportedSampleRates)> AvailableDevicesWithSampleRates
         {
             get
             {
-                var devices = new List<(int, string, double[])>();
-
-                int deviceCount = BassAsio.DeviceCount;
-                for (int i = 0; i < deviceCount; i++)
+                foreach (var (index, name) in AvailableDevices)
                 {
-                    var info = new AsioDeviceInfo();
-                    if (BassAsio.GetDeviceInfo(i, out info))
-                    {
-                        var supportedRates = GetSupportedSampleRates(i).ToArray();
-                        devices.Add((i, info.Name, supportedRates));
-                    }
+                    double[] supportedRates = GetSupportedSampleRates(index).ToArray();
+                    yield return (index, name, supportedRates);
                 }
-
-                return devices;
             }
         }
 
         /// <summary>
-        /// Initializes an ASIO device.
+        /// 初始化ASIO设备。
         /// </summary>
-        /// <param name="deviceIndex">The index of the ASIO device to initialize.</param>
-        /// <param name="sampleRatesToTry">The sample rates to try in order. If null, will try common rates.</param>
-        /// <returns>True if initialization was successful, false otherwise.</returns>
+        /// <param name="deviceIndex">要初始化的ASIO设备的索引。</param>
+        /// <param name="sampleRatesToTry">按顺序尝试的采样率。如果为null，将尝试常见速率。</param>
+        /// <returns>如果初始化成功则为true，否则为false。</returns>
         public static bool InitializeDevice(int deviceIndex, double[]? sampleRatesToTry = null)
         {
             try
             {
-                Logger.Log($"InitializeDevice called with deviceIndex={deviceIndex}, sampleRatesToTry={string.Join(",", sampleRatesToTry ?? Array.Empty<double>())}", LoggingTarget.Runtime, LogLevel.Debug);
+                Logger.Log($"InitializeDevice called with deviceIndex={deviceIndex}, sampleRatesToTry={string.Join(",", sampleRatesToTry ?? Array.Empty<double>())}", LoggingTarget.Runtime,
+                    LogLevel.Debug);
 
-                // Check if the device index is valid
-                if (deviceIndex < 0 || deviceIndex >= BassAsio.DeviceCount)
-                {
-                    Logger.Log($"Invalid ASIO device index: {deviceIndex} (DeviceCount: {BassAsio.DeviceCount})", LoggingTarget.Runtime, LogLevel.Error);
+                // 获取设备信息
+                if (!tryGetDeviceInfo(deviceIndex, out AsioDeviceInfo deviceInfo))
                     return false;
-                }
-
-                // Get device info
-                var deviceInfo = new AsioDeviceInfo();
-                if (!BassAsio.GetDeviceInfo(deviceIndex, out deviceInfo))
-                {
-                    Logger.Log($"Failed to get ASIO device info for index: {deviceIndex}", LoggingTarget.Runtime, LogLevel.Error);
-                    return false;
-                }
 
                 Logger.Log($"Initializing ASIO device: {deviceInfo.Name} (Driver: {deviceInfo.Driver})", LoggingTarget.Runtime, LogLevel.Debug);
 
                 FreeDevice();
 
-                // Try different initialization flags to handle ASIO initialization
-                // Use Thread flag to ensure BassAsio creates a dedicated thread with message queue
-                // This is REQUIRED for ASIO to work properly according to documentation
-                AsioInitFlags[] initFlagsToTry = new[] { AsioInitFlags.Thread };
-
-                bool deviceInitialized = false;
-                double successfulRate = 0;
+                // 尝试不同的初始化标志
+                AsioInitFlags[] initFlagsToTry = { AsioInitFlags.Thread };
 
                 foreach (var flags in initFlagsToTry)
                 {
-                    Logger.Log($"Trying ASIO initialization with flags: {flags}", LoggingTarget.Runtime, LogLevel.Debug);
-
-                    // Try initialization with retry logic for busy devices (3 attempts within 1 second)
-                    int retryCount = 0;
-                    const int maxRetries = 3;
-
-                    while (retryCount < maxRetries)
+                    if (tryInitializeDevice(deviceIndex, flags))
                     {
-                        if (BassAsio.Init(deviceIndex, flags))
-                        {
-                            Logger.Log($"ASIO device initialized successfully with flags: {flags} (attempt {retryCount + 1})", LoggingTarget.Runtime, LogLevel.Debug);
-                            deviceInitialized = true;
-                            break;
-                        }
-
-                        var bassError = BassAsio.LastError;
-                        Logger.Log($"ASIO initialization failed with flags {flags} (attempt {retryCount + 1}): {bassError} (Code: {(int)bassError}) - {GetAsioErrorDescription((int)bassError)}", LoggingTarget.Runtime, LogLevel.Important);
-
-                        // If device is busy, wait and retry (100ms delay for quick retries within 1 second total)
-                        if ((int)bassError == 3 || bassError == Errors.Busy)
-                        {
-                            retryCount++;
-                            if (retryCount < maxRetries)
-                            {
-                                Logger.Log($"Device busy, waiting 100ms before retry {retryCount + 1}/{maxRetries}", LoggingTarget.Runtime, LogLevel.Important);
-                                System.Threading.Thread.Sleep(100);
-                                continue;
-                            }
-                        }
-
-                        // For other errors, don't retry
-                        break;
-                    }
-
-                    if (deviceInitialized)
-                    {
-                        // Try sample rates in order
-                        double[] ratesToTry = sampleRatesToTry ?? new double[] { 44100.0, 48000.0 };
+                        // 尝试采样率
+                        double[] ratesToTry = sampleRatesToTry ?? new[] { 44100.0, 48000.0 };
+                        double successfulRate = 0;
 
                         foreach (double rate in ratesToTry)
                         {
-                            if (BassAsio.CheckRate(rate))
+                            if (trySetSampleRate(rate))
                             {
-                                BassAsio.Rate = rate;
-
-                                // Check for errors after setting the rate
-                                var rateError = BassAsio.LastError;
-                                if (rateError != Errors.OK)
-                                {
-                                    Logger.Log($"Failed to set ASIO device sample rate to {rate}Hz: {rateError} (Code: {(int)rateError})", LoggingTarget.Runtime, LogLevel.Error);
-                                    continue;
-                                }
-
-                                // Verify that the rate was set successfully
-                                double actualRate = BassAsio.Rate;
-                                if (Math.Abs(actualRate - rate) < 1.0) // Allow small floating point differences
-                                {
-                                    successfulRate = rate;
-                                    Logger.Log($"Set ASIO device sample rate to {rate}Hz", LoggingTarget.Runtime, LogLevel.Debug);
-                                    break;
-                                }
-                                else
-                                {
-                                    Logger.Log($"Failed to set ASIO device sample rate to {rate}Hz (actual: {actualRate}Hz)", LoggingTarget.Runtime, LogLevel.Error);
-                                }
-                            }
-                            else
-                            {
-                                Logger.Log($"Device does not support {rate}Hz sample rate", LoggingTarget.Runtime, LogLevel.Debug);
+                                successfulRate = rate;
+                                break;
                             }
                         }
 
-                        if (successfulRate == 0)
-                        {
-                            Logger.Log("Device does not support any of the requested sample rates", LoggingTarget.Runtime, LogLevel.Error);
-                            BassAsio.Free();
-                            return false;
-                        }
+                        if (successfulRate > 0)
+                            return true;
 
-                        return true;
+                        // 如果采样率设置失败，释放设备
+                        BassAsio.Free();
+                        break;
                     }
 
-                    // If we get BufferLost error, try different approach
+                    // 处理BufferLost错误
                     if (BassAsio.LastError == Errors.BufferLost)
                     {
-                        Logger.Log("BufferLost error detected, trying alternative initialization approach", LoggingTarget.Runtime, LogLevel.Important);
+                        Logger.Log("BufferLost error detected, trying alternative initialization method", LoggingTarget.Runtime, LogLevel.Important);
                         FreeDevice();
-                        // Driver reset handled by FreeDevice(), no sleep needed in audio thread
                     }
                 }
 
-                // If all flag combinations failed, log the final error
+                // 记录最终错误
                 var finalError = BassAsio.LastError;
-                Logger.Log($"All ASIO initialization attempts failed for device {deviceIndex}. Last error: {finalError} (Code: {(int)finalError}) - {GetAsioErrorDescription((int)finalError)}", LoggingTarget.Runtime, LogLevel.Important);
+                Logger.Log($"All ASIO initialization attempts failed for device {deviceIndex}. Final error: {finalError} (Code: {(int)finalError}) - {getAsioErrorDescription((int)finalError)}",
+                    LoggingTarget.Runtime, LogLevel.Important);
                 Logger.Log($"Device info: Name='{deviceInfo.Name}', Driver='{deviceInfo.Driver}'", LoggingTarget.Runtime, LogLevel.Important);
                 return false;
             }
@@ -276,50 +288,37 @@ namespace osu.Framework.Audio.Asio
         }
 
         /// <summary>
-        /// Frees the currently initialized ASIO device.
+        /// 释放当前初始化的ASIO设备。
         /// </summary>
         public static void FreeDevice()
         {
             try
             {
-                // Stop the device first if it's running
                 BassAsio.Stop();
-                Logger.Log("ASIO device stopped", LoggingTarget.Runtime, LogLevel.Debug);
+                Logger.Log("ASIO Stop", LoggingTarget.Runtime, LogLevel.Debug);
 
-                // Free the ASIO device
                 BassAsio.Free();
-                Logger.Log("ASIO device freed successfully", LoggingTarget.Runtime, LogLevel.Debug);
+                Logger.Log("ASIO Free", LoggingTarget.Runtime, LogLevel.Debug);
 
-                // Add a small delay to ensure the device is completely released
-                // This prevents device busy errors when switching devices quickly
-                System.Threading.Thread.Sleep(100);
+                Thread.Sleep(DEVICE_FREE_DELAY_MS);
             }
             catch (Exception ex)
             {
-                Logger.Log($"Exception during ASIO device freeing: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
+                Logger.Log($"Exception during ASIO device release: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
             }
         }
 
         /// <summary>
-        /// Forces a complete reset of ASIO state, useful for recovery from error conditions.
+        /// 强制完全重置ASIO状态，用于从错误条件中恢复。
         /// </summary>
         public static void ForceReset()
         {
             try
             {
-                Logger.Log("Forcing complete ASIO state reset", LoggingTarget.Runtime, LogLevel.Debug);
-
-                // Stop and free any existing ASIO device
-                BassAsio.Stop();
-                BassAsio.Free();
-
-                // Clear the global mixer handle
+                FreeDevice();
                 globalMixerHandle = 0;
-
-                // Add longer delay to ensure complete reset
-                System.Threading.Thread.Sleep(200);
-
-                Logger.Log("ASIO state reset completed", LoggingTarget.Runtime, LogLevel.Debug);
+                Thread.Sleep(FORCE_RESET_DELAY_MS);
+                Logger.Log("ASIO Force Reset", LoggingTarget.Runtime, LogLevel.Debug);
             }
             catch (Exception ex)
             {
@@ -328,37 +327,36 @@ namespace osu.Framework.Audio.Asio
         }
 
         /// <summary>
-        /// Starts the ASIO device processing.
+        /// 启动ASIO设备处理。
         /// </summary>
-        /// <returns>True if start was successful, false otherwise.</returns>
+        /// <returns>如果启动成功则为true，否则为false。</returns>
         public static bool StartDevice()
         {
             try
             {
-                // Configure default output channels before starting
-                if (!ConfigureDefaultChannels())
+                // 启动前配置默认输出通道
+                if (!configureDefaultChannels())
                 {
-                    Logger.Log("Failed to configure default ASIO channels", LoggingTarget.Runtime, LogLevel.Error);
+                    Logger.Log("ASIO Configure Default Channels Fail", LoggingTarget.Runtime, LogLevel.Error);
                     return false;
                 }
 
-                // Check if channels are properly enabled before starting
-                var channel0Active = BassAsio.ChannelIsActive(false, 0);
-                var channel1Active = BassAsio.ChannelIsActive(false, 1);
-
-                Logger.Log($"Channel 0 active state: {channel0Active}, Channel 1 active state: {channel1Active}",
-                          LoggingTarget.Runtime, LogLevel.Debug);
+                // 启动前检查通道是否正确启用
+                if (!areChannelsActive())
+                {
+                    Logger.Log("ASIO channels not properly configured before start", LoggingTarget.Runtime, LogLevel.Error);
+                    return false;
+                }
 
                 if (BassAsio.Start())
                 {
                     Logger.Log("ASIO device started successfully", LoggingTarget.Runtime, LogLevel.Debug);
 
-                    // Verify that channels are actually processing after start
-                    channel0Active = BassAsio.ChannelIsActive(false, 0);
-                    channel1Active = BassAsio.ChannelIsActive(false, 1);
-
-                    Logger.Log($"After start - Channel 0 active state: {channel0Active}, Channel 1 active state: {channel1Active}",
-                              LoggingTarget.Runtime, LogLevel.Debug);
+                    // 启动后验证通道是否仍在处理
+                    if (!areChannelsActive())
+                    {
+                        Logger.Log("Warning: ASIO channels became inactive after start", LoggingTarget.Runtime, LogLevel.Important);
+                    }
 
                     return true;
                 }
@@ -366,7 +364,7 @@ namespace osu.Framework.Audio.Asio
                 {
                     var bassError = BassAsio.LastError;
                     Logger.Log($"Failed to start ASIO device: {bassError} (Code: {(int)bassError})",
-                              LoggingTarget.Runtime, LogLevel.Error);
+                        LoggingTarget.Runtime, LogLevel.Error);
                     return false;
                 }
             }
@@ -378,7 +376,23 @@ namespace osu.Framework.Audio.Asio
         }
 
         /// <summary>
-        /// Stops the ASIO device processing.
+        /// 检查立体声输出通道是否激活。
+        /// </summary>
+        /// <returns>如果两个通道都激活则为true，否则为false。</returns>
+        private static bool areChannelsActive()
+        {
+            var channel0Active = BassAsio.ChannelIsActive(false, 0);
+            var channel1Active = BassAsio.ChannelIsActive(false, 1);
+
+            Logger.Log($"Channel status - Channel 0: {channel0Active}, Channel 1: {channel1Active}",
+        LoggingTarget.Runtime, LogLevel.Debug);
+
+            // 检查两个通道是否都处于激活状态
+            return (int)channel0Active != 0 && (int)channel1Active != 0;
+        }
+
+        /// <summary>
+        /// 停止ASIO设备处理。
         /// </summary>
         public static void StopDevice()
         {
@@ -394,14 +408,14 @@ namespace osu.Framework.Audio.Asio
         }
 
         /// <summary>
-        /// Gets information about the currently initialized ASIO device.
+        /// 获取当前初始化ASIO设备的信息。
         /// </summary>
-        /// <returns>ASIO device information, or null if no device is initialized.</returns>
+        /// <returns>ASIO设备信息，如果没有设备初始化则为null。</returns>
         public static AsioInfo? GetCurrentDeviceInfo()
         {
             try
             {
-                var info = new AsioInfo();
+                AsioInfo info;
                 if (BassAsio.GetInfo(out info))
                     return info;
 
@@ -415,9 +429,9 @@ namespace osu.Framework.Audio.Asio
         }
 
         /// <summary>
-        /// Gets the current sample rate of the ASIO device.
+        /// 获取ASIO设备的当前采样率。
         /// </summary>
-        /// <returns>The current sample rate, or 0 if no device is initialized or an error occurs.</returns>
+        /// <returns>当前采样率，如果没有设备初始化或出错则为0。</returns>
         public static double GetCurrentSampleRate()
         {
             try
@@ -432,11 +446,11 @@ namespace osu.Framework.Audio.Asio
         }
 
         /// <summary>
-        /// Gets a list of sample rates supported by the specified ASIO device.
-        /// This method temporarily initializes the device to query supported rates, then frees it.
+        /// 获取指定ASIO设备支持的采样率列表。
+        /// 此方法临时初始化设备以查询支持的速率，然后释放它。
         /// </summary>
-        /// <param name="deviceIndex">The index of the ASIO device to query.</param>
-        /// <returns>A list of supported sample rates, or an empty list if the device cannot be queried.</returns>
+        /// <param name="deviceIndex">要查询的ASIO设备的索引。</param>
+        /// <returns>支持的采样率列表，如果无法查询设备则为空列表。</returns>
         public static IEnumerable<double> GetSupportedSampleRates(int deviceIndex)
         {
             var supportedRates = new List<double>();
@@ -445,52 +459,21 @@ namespace osu.Framework.Audio.Asio
             {
                 Logger.Log($"Querying supported sample rates for ASIO device index {deviceIndex}", LoggingTarget.Runtime, LogLevel.Debug);
 
-                // Check if the device index is valid
-                if (deviceIndex < 0 || deviceIndex >= BassAsio.DeviceCount)
-                {
-                    Logger.Log($"Invalid ASIO device index: {deviceIndex} (DeviceCount: {BassAsio.DeviceCount})", LoggingTarget.Runtime, LogLevel.Error);
+                if (!tryGetDeviceInfo(deviceIndex, out AsioDeviceInfo deviceInfo))
                     return supportedRates;
-                }
 
-                // Get device info
-                var deviceInfo = new AsioDeviceInfo();
-                if (!BassAsio.GetDeviceInfo(deviceIndex, out deviceInfo))
-                {
-                    Logger.Log($"Failed to get ASIO device info for index: {deviceIndex}", LoggingTarget.Runtime, LogLevel.Error);
-                    return supportedRates;
-                }
+                Logger.Log($"Querying sample rates for ASIO device {deviceInfo.Name}", LoggingTarget.Runtime, LogLevel.Debug);
 
-                Logger.Log($"Querying sample rates for ASIO device: {deviceInfo.Name}", LoggingTarget.Runtime, LogLevel.Debug);
-
-                // Free any existing device first
                 FreeDevice();
 
-                // Try to initialize the device temporarily for querying
-                // Use Thread flag for ASIO initialization
-                bool deviceInitialized = false;
-                AsioInitFlags[] initFlagsToTry = new[] { AsioInitFlags.Thread };
-
-                foreach (var flags in initFlagsToTry)
-                {
-                    if (BassAsio.Init(deviceIndex, flags))
-                    {
-                        deviceInitialized = true;
-                        Logger.Log($"Temporarily initialized ASIO device for rate querying with flags: {flags}", LoggingTarget.Runtime, LogLevel.Debug);
-                        break;
-                    }
-                }
-
-                if (!deviceInitialized)
+                // 临时初始化设备进行查询
+                if (!tryInitializeDevice(deviceIndex, AsioInitFlags.Thread))
                 {
                     Logger.Log($"Failed to temporarily initialize ASIO device {deviceIndex} for rate querying", LoggingTarget.Runtime, LogLevel.Error);
                     return supportedRates;
                 }
 
-                // Query supported sample rates
-                // Test common sample rates that ASIO devices typically support
-                double[] testRates = { 44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000 };
-
-                foreach (double rate in testRates)
+                foreach (double rate in SUPPORTED_SAMPLE_RATES)
                 {
                     try
                     {
@@ -506,11 +489,10 @@ namespace osu.Framework.Audio.Asio
                     }
                     catch (Exception ex)
                     {
-                        Logger.Log($"Exception checking rate {rate}Hz: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
+                        Logger.Log($"Exception while checking sample rate {rate}Hz: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
                     }
                 }
 
-                // Free the device after querying
                 FreeDevice();
 
                 Logger.Log($"Found {supportedRates.Count} supported sample rates for ASIO device {deviceInfo.Name}: {string.Join(", ", supportedRates)}", LoggingTarget.Runtime, LogLevel.Important);
@@ -518,30 +500,30 @@ namespace osu.Framework.Audio.Asio
             catch (Exception ex)
             {
                 Logger.Log($"Exception querying ASIO device sample rates: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
-                // Ensure device is freed even if an exception occurs
-                try { FreeDevice(); } catch { }
+
+                FreeDevice();
             }
 
             return supportedRates;
         }
 
         /// <summary>
-        /// Configures default input and output channels for ASIO device.
+        /// 为ASIO设备配置默认输入和输出通道。
         /// </summary>
-        /// <returns>True if channel configuration was successful, false otherwise.</returns>
-        private static bool ConfigureDefaultChannels()
+        /// <returns>如果通道配置成功则为true，否则为false。</returns>
+        private static bool configureDefaultChannels()
         {
             try
             {
-                // Get device info to determine available channels
+                // 获取设备信息以确定可用通道
                 var info = GetCurrentDeviceInfo();
                 if (info == null)
                     return false;
 
                 Logger.Log($"ASIO device has {info.Value.Inputs} inputs and {info.Value.Outputs} outputs available", LoggingTarget.Runtime, LogLevel.Debug);
 
-                // Try to configure at least one stereo output channel pair
-                bool channelsConfigured = ConfigureOutputChannels(info.Value);
+                // 尝试配置至少一个立体声输出通道对
+                bool channelsConfigured = configureOutputChannels(info.Value);
 
                 if (channelsConfigured)
                 {
@@ -549,8 +531,8 @@ namespace osu.Framework.Audio.Asio
                 }
                 else
                 {
-                    Logger.Log("Failed to configure ASIO channels, falling back to driver default configuration", LoggingTarget.Runtime, LogLevel.Important);
-                    // Fallback to basic availability check
+                    Logger.Log("Channel configuration failed, falling back to driver default configuration", LoggingTarget.Runtime, LogLevel.Important);
+                    // 回退到基本可用性检查
                     channelsConfigured = info.Value.Inputs > 0 || info.Value.Outputs > 0;
                 }
 
@@ -564,54 +546,54 @@ namespace osu.Framework.Audio.Asio
         }
 
         /// <summary>
-        /// Configures output channels for ASIO device.
+        /// 为ASIO设备配置输出通道。
         /// </summary>
-        /// <param name="info">The ASIO device information.</param>
-        /// <returns>True if output channels were successfully configured, false otherwise.</returns>
-        private static bool ConfigureOutputChannels(AsioInfo info)
+        /// <param name="info">ASIO设备信息。</param>
+        /// <returns>如果输出通道成功配置则为true，否则为false。</returns>
+        private static bool configureOutputChannels(AsioInfo info)
         {
             if (info.Outputs < 2)
             {
-                Logger.Log($"Not enough output channels available ({info.Outputs}), cannot configure stereo output", LoggingTarget.Runtime, LogLevel.Important);
+                Logger.Log($"Insufficient output channels available ({info.Outputs}), cannot configure stereo output", LoggingTarget.Runtime, LogLevel.Important);
                 return false;
             }
 
             try
             {
-                // Configure first stereo output pair (channels 0 and 1)
+                // 配置第一个立体声输出对（通道0和1）
                 Logger.Log($"Configuring stereo output channels (0 and 1) for ASIO device", LoggingTarget.Runtime, LogLevel.Debug);
 
-                // Create ASIO procedure callback
-                AsioProcedure asioCallback = AsioProcedure;
+                // 创建ASIO过程回调
+                AsioProcedure asioCallback = asioProcedure;
 
-                // Enable channel 0 (left)
+                // 启用通道0（左）
                 if (!BassAsio.ChannelEnable(false, 0, asioCallback))
                 {
                     Logger.Log($"Failed to enable output channel 0: {BassAsio.LastError}", LoggingTarget.Runtime, LogLevel.Error);
                     return false;
                 }
 
-                // Enable channel 1 (right) and join it to channel 0 for stereo
+                // 启用通道1（右）并将其连接到通道0以形成立体声
                 if (!BassAsio.ChannelEnable(false, 1, asioCallback))
                 {
                     Logger.Log($"Failed to enable output channel 1: {BassAsio.LastError}", LoggingTarget.Runtime, LogLevel.Error);
                     return false;
                 }
 
-                // 设置输出格式为 Float 以与我们提供的 Float 数据匹配
+                // 设置输出格式为Float以与我们提供的Float数据匹配
                 if (!BassAsio.ChannelSetFormat(false, 0, AsioSampleFormat.Float))
-                    Logger.Log($"Channel 0 set format Float failed: {BassAsio.LastError}", LoggingTarget.Runtime, LogLevel.Error);
+                    Logger.Log($"Failed to set format Float for channel 0: {BassAsio.LastError}", LoggingTarget.Runtime, LogLevel.Error);
                 if (!BassAsio.ChannelSetFormat(false, 1, AsioSampleFormat.Float))
-                    Logger.Log($"Channel 1 set format Float failed: {BassAsio.LastError}", LoggingTarget.Runtime, LogLevel.Error);
+                    Logger.Log($"Failed to set format Float for channel 1: {BassAsio.LastError}", LoggingTarget.Runtime, LogLevel.Error);
 
-                // 与 Rate（44100 或 48000）对齐
-                double targetRate = BassAsio.Rate > 0 ? BassAsio.Rate : 44100.0;
+                // 对齐
+                double targetRate = BassAsio.Rate > 0 ? BassAsio.Rate : DEFAULT_SAMPLE_RATE;
                 if (!BassAsio.ChannelSetRate(false, 0, targetRate))
-                    Logger.Log($"Channel 0 set rate {targetRate} failed: {BassAsio.LastError}", LoggingTarget.Runtime, LogLevel.Debug);
+                    Logger.Log($"Failed to set rate {targetRate} for channel 0: {BassAsio.LastError}", LoggingTarget.Runtime, LogLevel.Debug);
                 if (!BassAsio.ChannelSetRate(false, 1, targetRate))
-                    Logger.Log($"Channel 1 set rate {targetRate} failed: {BassAsio.LastError}", LoggingTarget.Runtime, LogLevel.Debug);
+                    Logger.Log($"Failed to set rate {targetRate} for channel 1: {BassAsio.LastError}", LoggingTarget.Runtime, LogLevel.Debug);
 
-                // Join channel 1 to channel 0 to form stereo pair
+                // 将通道1连接到通道0以形成立体声对
                 if (!BassAsio.ChannelJoin(false, 1, 0))
                 {
                     Logger.Log($"Failed to join output channels 0 and 1: {BassAsio.LastError}", LoggingTarget.Runtime, LogLevel.Error);
@@ -629,47 +611,49 @@ namespace osu.Framework.Audio.Asio
         }
 
         /// <summary>
-        /// ASIO procedure callback for channel processing.
+        /// ASIO过程回调，用于通道处理。
         /// </summary>
-        private static int silenceFrames = 0;
-        private static int AsioProcedure(bool input, int channel, IntPtr buffer, int length, IntPtr user)
+        private static int silenceFrames;
+
+        private static int asioProcedure(bool input, int channel, IntPtr buffer, int length, IntPtr user)
         {
             if (input)
             {
-                // For input channels, we don't process anything
+                // 对于输入通道，我们不处理任何内容
                 return 0;
             }
 
-            // For output channels, we need to provide audio data from the game's audio system
-            // Get the global mixer handle from the audio thread
-            int globalMixerHandle = GetGlobalMixerHandle();
-            if (globalMixerHandle == 0)
+            // 对于输出通道，我们需要从游戏音频系统中提供音频数据
+            // 从音频线程获取全局混音器句柄
+            int mixerHandle = getGlobalMixerHandle();
+
+            if (mixerHandle == 0)
             {
-                // If global mixer is not available, fill with silence
-                FillBufferWithSilence(buffer, length);
+                // 如果全局混音器不可用，用静音填充
+                fillBufferWithSilence(buffer, length);
                 return length;
             }
 
             try
             {
-                // Get audio data from the global mixer
-                // Use DataFlags.Float flag to get float data directly
-                int bytesRead = Bass.ChannelGetData(globalMixerHandle, buffer, length | (int)DataFlags.Float);
+                // 从全局混音器获取音频数据
+                // 使用DataFlags.Float标志直接获取float数据
+                int bytesRead = Bass.ChannelGetData(mixerHandle, buffer, length | (int)DataFlags.Float);
 
                 if (bytesRead <= 0)
                 {
-                    // No audio data available, fill with silence
-                    FillBufferWithSilence(buffer, length);
-                    if (++silenceFrames % 200 == 0)
-                        Logger.Log($"[AudioDebug] ASIO callback silence count={silenceFrames}, globalMixer={globalMixerHandle}", LoggingTarget.Runtime, LogLevel.Debug);
+                    // 没有音频数据可用，用静音填充
+                    fillBufferWithSilence(buffer, length);
+                    if (++silenceFrames % SILENCE_LOG_INTERVAL == 0)
+                        Logger.Log($"[AudioDebug] ASIO callback silence count={silenceFrames}, globalMixer={mixerHandle}", LoggingTarget.Runtime, LogLevel.Debug);
                 }
                 else if (bytesRead < length)
                 {
-                    // Partial data received, fill the rest with silence
+                    // 接收到部分数据，用静音填充其余部分
                     unsafe
                     {
                         float* bufferPtr = (float*)buffer;
-                        float* silenceStart = bufferPtr + (bytesRead / sizeof(float));
+                        float* silenceStart = bufferPtr + bytesRead / sizeof(float);
                         int silenceSamples = (length - bytesRead) / sizeof(float);
 
                         for (int i = 0; i < silenceSamples; i++)
@@ -679,31 +663,32 @@ namespace osu.Framework.Audio.Asio
                     }
                 }
 
-                return length; // Always return requested length (driver expects full buffer)
+                return length; // 总是返回请求的长度（驱动程序期望完整缓冲区）
             }
             catch (Exception ex)
             {
                 Logger.Log($"Exception in ASIO callback: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
-                FillBufferWithSilence(buffer, length);
+                fillBufferWithSilence(buffer, length);
                 return length;
             }
         }
 
         /// <summary>
-        /// Gets the global mixer handle from the audio thread.
+        /// 从音频线程获取全局混音器句柄。
         /// </summary>
-        private static int GetGlobalMixerHandle()
+        private static int getGlobalMixerHandle()
         {
-            // Return the global mixer handle that was set by the audio thread
+            // 返回音频线程设置的全局混音器句柄
             return globalMixerHandle;
         }
 
         /// <summary>
-        /// Fills the buffer with silence (zeroes).
+        /// 用静音（零）填充缓冲区。
         /// </summary>
-        private static unsafe void FillBufferWithSilence(IntPtr buffer, int length)
+        private static unsafe void fillBufferWithSilence(IntPtr buffer, int length)
         {
             float* bufferPtr = (float*)buffer;
+
             for (int i = 0; i < length / sizeof(float); i++)
             {
                 bufferPtr[i] = 0.0f;
@@ -711,19 +696,20 @@ namespace osu.Framework.Audio.Asio
         }
 
         /// <summary>
-        /// Gets a description for an ASIO error code.
+        /// 获取ASIO错误代码的描述。
         /// </summary>
-        private static string GetAsioErrorDescription(int errorCode)
+        private static string getAsioErrorDescription(int errorCode)
         {
             return errorCode switch
             {
-                3 => "ASIO driver unavailable, busy, incompatible, or failed to open. For Voicemeeter drivers, ensure the Voicemeeter application is running. For FiiO ASIO drivers, try routing through Voicemeeter or ensure no other applications are using the FiiO device.",
-                1 => "ASIO driver not present or invalid.",
-                2 => "No input/output channels present.",
-                6 => "Unsupported sample format. The ASIO driver may not support the requested audio format.",
-                8 => "Already initialized. This may indicate a driver conflict or improper cleanup.",
-                23 => "Device not present. The ASIO device may have been disconnected or is not available.",
-                _ => $"Unknown ASIO error (code {errorCode})."
+                3 =>
+                    "ASIO驱动程序不可用、繁忙、不兼容或打开失败。对于VoiceMeeter驱动程序，确保VoiceMeeter应用程序正在运行。对于硬件ASIO驱动程序，请尝试通过VoiceMeeter路由或确保没有其他应用程序正在使用硬件设备。",
+                1 => "ASIO驱动程序不存在或无效。",
+                2 => "没有输入/输出通道存在。",
+                6 => "不支持的采样格式。ASIO驱动程序可能不支持请求的音频格式。",
+                8 => "已初始化。这可能表示驱动程序冲突或清理不当。",
+                23 => "设备不存在。ASIO设备可能已断开连接或不可用。",
+                _ => $"未知ASIO错误（代码{errorCode}）。"
             };
         }
     }

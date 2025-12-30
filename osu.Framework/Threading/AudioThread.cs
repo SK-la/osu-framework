@@ -1,7 +1,6 @@
 ﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-using osu.Framework.Statistics;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -9,16 +8,18 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Threading;
 using ManagedBass;
+using ManagedBass.Asio;
 using ManagedBass.Mix;
 using ManagedBass.Wasapi;
-using ManagedBass.Asio;
-using osu.Framework.Audio.Asio;
 using osu.Framework.Audio;
+using osu.Framework.Audio.Asio;
 using osu.Framework.Bindables;
 using osu.Framework.Development;
 using osu.Framework.Logging;
 using osu.Framework.Platform.Linux.Native;
+using osu.Framework.Statistics;
 
 namespace osu.Framework.Threading
 {
@@ -148,20 +149,18 @@ namespace osu.Framework.Threading
 
         // WASAPI callbacks must never be allowed to be GC'd while native code may still call into them.
         // Use static delegates with a stable user pointer back to this thread instance.
-        private static readonly WasapiProcedure wasapiProcedureStatic = (buffer, length, user) =>
+        private static readonly WasapiProcedure wasapi_procedure_static = (buffer, length, user) =>
         {
             var thread = getWasapiOwner(user);
-            if (thread == null)
-                return 0;
 
-            int? mixer = thread.globalMixerHandle.Value;
+            int? mixer = thread?.globalMixerHandle.Value;
             if (mixer == null)
                 return 0;
 
             return Bass.ChannelGetData(mixer.Value, buffer, length);
         };
 
-        private static readonly WasapiNotifyProcedure wasapiNotifyProcedureStatic = (notify, device, user) =>
+        private static readonly WasapiNotifyProcedure wasapi_notify_procedure_static = (notify, device, user) =>
         {
             var thread = getWasapiOwner(user);
             if (thread == null)
@@ -192,7 +191,7 @@ namespace osu.Framework.Threading
             }
         }
 
-        private readonly GCHandle wasapiUserHandle;
+        private GCHandle wasapiUserHandle;
         private readonly IntPtr wasapiUserPtr;
         private bool wasapiExclusiveActive;
 
@@ -224,12 +223,13 @@ namespace osu.Framework.Threading
             {
                 Logger.Log("ASIO mode detected, adding extra delay before device initialization", name: "audio", level: LogLevel.Debug);
                 // Increase delay to ensure complete device release
-                System.Threading.Thread.Sleep(500);
+                Thread.Sleep(500);
             }
 
             // Try to initialise the device, or request a re-initialise.
             // 128 == BASS_DEVICE_REINIT. Only use it when the device is already initialised.
             var initFlags = initialised_devices.Contains(deviceId) ? (DeviceInitFlags)128 : 0;
+
             if (!Bass.Init(deviceId, Flags: initFlags))
             {
                 Logger.Log($"BASS.Init({deviceId}) failed: {Bass.LastError}", name: "audio", level: LogLevel.Error);
@@ -317,12 +317,12 @@ namespace osu.Framework.Threading
 
         private static void registerBassAsioResolver()
         {
-            if (System.Threading.Interlocked.Exchange(ref asioResolverRegistered, 1) == 1)
+            if (Interlocked.Exchange(ref asioResolverRegistered, 1) == 1)
                 return;
 
             try
             {
-                NativeLibrary.SetDllImportResolver(typeof(ManagedBass.Asio.BassAsio).Assembly, resolveBassAsio);
+                NativeLibrary.SetDllImportResolver(typeof(BassAsio).Assembly, resolveBassAsio);
             }
             catch (InvalidOperationException)
             {
@@ -443,16 +443,17 @@ namespace osu.Framework.Threading
                                    .First();
 
                         wasapiDevice = best.index;
-                        Logger.Log($"Mapped BASS device {bassDeviceId} (driver '{driver}') to WASAPI device {wasapiDevice} (mix: {best.freq}Hz/{best.chans}ch).", name: "audio", level: LogLevel.Verbose);
+                        Logger.Log($"Mapped BASS device {bassDeviceId} (driver '{driver}') to WASAPI device {wasapiDevice} (mix: {best.freq}Hz/{best.chans}ch).", name: "audio",
+                            level: LogLevel.Verbose);
 
                         // In exclusive mode, the chosen (freq/chans) pair matters. If the preferred candidate fails,
                         // we will retry other candidates below.
                         if (exclusive)
                         {
                             foreach (var candidate in candidates
-                                                     .OrderBy(c => c.chans == 2 ? 0 : 1)
-                                                     .ThenBy(c => Math.Abs(c.freq - 48000))
-                                                     .ThenBy(c => Math.Abs(c.freq - 44100)))
+                                                      .OrderBy(c => c.chans == 2 ? 0 : 1)
+                                                      .ThenBy(c => Math.Abs(c.freq - 48000))
+                                                      .ThenBy(c => Math.Abs(c.freq - 44100)))
                             {
                                 freeWasapi();
 
@@ -470,11 +471,13 @@ namespace osu.Framework.Threading
                         // Fallback would likely be busy (e.g. browser playing on default), and would mask the real issue.
                         if (bassDeviceId != Bass.DefaultDevice)
                         {
-                            Logger.Log($"Could not map BASS device {bassDeviceId} (driver '{driver}') to a WASAPI output device; refusing to fall back to default (-1).", name: "audio", level: LogLevel.Verbose);
+                            Logger.Log($"Could not map BASS device {bassDeviceId} (driver '{driver}') to a WASAPI output device; refusing to fall back to default (-1).", name: "audio",
+                                level: LogLevel.Verbose);
                             return false;
                         }
 
-                        Logger.Log($"Could not map BASS default device (driver '{driver}') to a WASAPI output device; falling back to default WASAPI device (-1).", name: "audio", level: LogLevel.Verbose);
+                        Logger.Log($"Could not map BASS default device (driver '{driver}') to a WASAPI output device; falling back to default WASAPI device (-1).", name: "audio",
+                            level: LogLevel.Verbose);
                     }
                 }
                 else
@@ -501,7 +504,7 @@ namespace osu.Framework.Threading
                 // - 0x1  = EXCLUSIVE
                 // - 0x10 = EVENT (event-driven)
                 // ManagedBass bindings used here do not currently expose Exclusive, so we use the documented value.
-                const WasapiInitFlags exclusiveFlag = (WasapiInitFlags)0x1;
+                const WasapiInitFlags exclusive_flag = (WasapiInitFlags)0x1;
 
                 int requestedFrequency = 0;
                 int requestedChannels = 0;
@@ -512,7 +515,7 @@ namespace osu.Framework.Threading
 
                 if (exclusive)
                 {
-                    flags |= exclusiveFlag;
+                    flags |= exclusive_flag;
 
                     if (wasapiDevice >= 0 && BassWasapi.GetDeviceInfo(wasapiDevice, out WasapiDeviceInfo selectedInfo))
                     {
@@ -531,8 +534,11 @@ namespace osu.Framework.Threading
                 float bufferSeconds = exclusive ? 0.05f : 0f;
                 float periodSeconds = exclusive ? 0.01f : float.Epsilon;
 
-                bool initialised = BassWasapi.Init(wasapiDevice, Frequency: requestedFrequency, Channels: requestedChannels, Procedure: wasapiProcedureStatic, Flags: flags, Buffer: bufferSeconds, Period: periodSeconds, User: wasapiUserPtr);
-                Logger.Log($"Initialising BassWasapi for device {wasapiDevice} (exclusive: {exclusive}, buffer: {bufferSeconds:0.###}s, period: {periodSeconds:0.###}s)...{(initialised ? "success!" : "FAILED")}", name: "audio", level: LogLevel.Verbose);
+                bool initialised = BassWasapi.Init(wasapiDevice, Frequency: requestedFrequency, Channels: requestedChannels, Procedure: wasapi_procedure_static, Flags: flags, Buffer: bufferSeconds,
+                    Period: periodSeconds, User: wasapiUserPtr);
+                Logger.Log(
+                    $"Initialising BassWasapi for device {wasapiDevice} (exclusive: {exclusive}, buffer: {bufferSeconds:0.###}s, period: {periodSeconds:0.###}s)...{(initialised ? "success!" : "FAILED")}",
+                    name: "audio", level: LogLevel.Verbose);
 
                 if (!initialised)
                     return false;
@@ -542,7 +548,7 @@ namespace osu.Framework.Threading
                 globalMixerHandle.Value = BassMix.CreateMixerStream(wasapiInfo.Frequency, wasapiInfo.Channels, BassFlags.MixerNonStop | BassFlags.Decode | BassFlags.Float);
                 BassWasapi.Start();
 
-                BassWasapi.SetNotify(wasapiNotifyProcedureStatic, wasapiUserPtr);
+                BassWasapi.SetNotify(wasapi_notify_procedure_static, wasapiUserPtr);
                 return true;
             }
             catch (DllNotFoundException e)
@@ -600,7 +606,7 @@ namespace osu.Framework.Threading
 
         private static void logWasapiNativeUnavailableOnce(string message)
         {
-            if (System.Threading.Interlocked.Exchange(ref wasapiNativeUnavailableLogged, 1) == 1)
+            if (Interlocked.Exchange(ref wasapiNativeUnavailableLogged, 1) == 1)
                 return;
 
             Logger.Log(message, name: "audio", level: LogLevel.Error);
@@ -641,6 +647,7 @@ namespace osu.Framework.Threading
 
             // Get device information after initialization
             var deviceInfo = AsioDeviceManager.GetCurrentDeviceInfo();
+
             if (deviceInfo == null)
             {
                 Logger.Log("Failed to get ASIO device info after initialization", name: "audio", level: LogLevel.Error);
@@ -667,26 +674,28 @@ namespace osu.Framework.Threading
             // Validate sample rate
             if (sampleRate <= 0 || sampleRate > 1000000 || double.IsNaN(sampleRate) || double.IsInfinity(sampleRate))
             {
-                Logger.Log($"Invalid sample rate detected ({sampleRate}Hz), using {AsioAudioFormat.DEFAULT_SAMPLE_RATE}Hz as fallback", name: "audio", level: LogLevel.Important);
-                sampleRate = AsioAudioFormat.DEFAULT_SAMPLE_RATE;
+                Logger.Log($"Invalid sample rate detected ({sampleRate}Hz), using {AsioDeviceManager.DEFAULT_SAMPLE_RATE}Hz as fallback", name: "audio", level: LogLevel.Important);
+                sampleRate = AsioDeviceManager.DEFAULT_SAMPLE_RATE;
             }
 
             Logger.Log($"Using ASIO device config - Outputs: {outputChannels}, Inputs: {inputChannels}, SampleRate: {sampleRate}Hz", name: "audio", level: LogLevel.Verbose);
 
             // Create mixer with stereo channels (game audio is always stereo)
-            const int mixerChannels = 2;
-            Logger.Log($"Creating ASIO mixer stream: sampleRate={sampleRate}, mixerChannels={mixerChannels} (stereo)", name: "audio", level: LogLevel.Verbose);
-            globalMixerHandle.Value = BassMix.CreateMixerStream((int)sampleRate, mixerChannels, BassFlags.MixerNonStop | BassFlags.Decode | BassFlags.Float);
+            const int mixer_channels = 2;
+            Logger.Log($"Creating ASIO mixer stream: sampleRate={sampleRate}, mixerChannels={mixer_channels} (stereo)", name: "audio", level: LogLevel.Verbose);
+            globalMixerHandle.Value = BassMix.CreateMixerStream((int)sampleRate, mixer_channels, BassFlags.MixerNonStop | BassFlags.Decode | BassFlags.Float);
+
             if (globalMixerHandle.Value == 0)
             {
                 var mixerError = Bass.LastError;
-                Logger.Log($"Failed to create ASIO mixer stream: {(int)mixerError} ({mixerError}), sampleRate={sampleRate}, channels={mixerChannels}", name: "audio", level: LogLevel.Error);
+                Logger.Log($"Failed to create ASIO mixer stream: {(int)mixerError} ({mixerError}), sampleRate={sampleRate}, channels={mixer_channels}", name: "audio", level: LogLevel.Error);
                 freeAsio();
                 // Free the BASS device so AudioManager can retry with a different device
                 FreeDevice(Bass.CurrentDevice);
                 return false;
             }
-            Logger.Log($"Created ASIO mixer stream with {mixerChannels} channels at {sampleRate}Hz (handle: {globalMixerHandle.Value})", name: "audio", level: LogLevel.Verbose);
+
+            Logger.Log($"Created ASIO mixer stream with {mixer_channels} channels at {sampleRate}Hz (handle: {globalMixerHandle.Value})", name: "audio", level: LogLevel.Verbose);
 
             // Set the global mixer handle for the ASIO device manager
             AsioDeviceManager.SetGlobalMixerHandle(globalMixerHandle.Value.Value);
@@ -708,20 +717,6 @@ namespace osu.Framework.Threading
             return true;
         }
 
-        private static string GetAsioErrorDescription(int errorCode)
-        {
-            return errorCode switch
-            {
-                3 => "This usually means the ASIO driver is unavailable, busy (possibly used by another application), incompatible, or failed to open. For Voicemeeter drivers, ensure the Voicemeeter application is running. For FiiO ASIO drivers, try routing through Voicemeeter or ensure no other applications are using the FiiO device.",
-                1 => "The ASIO driver is not present or invalid.",
-                2 => "No input/output is present.",
-                6 => "Unsupported sample format. The ASIO driver may not support the requested audio format.",
-                8 => "Already initialized. This may indicate a driver conflict or improper cleanup.",
-                23 => "Device not present. The ASIO device may have been disconnected or is not available.",
-                _ => $"Unknown ASIO error (code {errorCode})."
-            };
-        }
-
         private void freeAsio()
         {
             try
@@ -730,7 +725,7 @@ namespace osu.Framework.Threading
                 AsioDeviceManager.StopDevice();
 
                 // Small delay after stop to let the device settle
-                System.Threading.Thread.Sleep(50);
+                Thread.Sleep(50);
 
                 // Free ASIO device
                 AsioDeviceManager.FreeDevice();
@@ -738,6 +733,7 @@ namespace osu.Framework.Threading
             catch (Exception ex)
             {
                 Logger.Log($"Exception during ASIO device cleanup: {ex.Message}, attempting force reset", name: "audio", level: LogLevel.Error);
+
                 try
                 {
                     AsioDeviceManager.ForceReset();
@@ -759,12 +755,13 @@ namespace osu.Framework.Threading
                 {
                     Logger.Log($"Exception freeing ASIO mixer: {ex.Message}", name: "audio", level: LogLevel.Error);
                 }
+
                 globalMixerHandle.Value = null;
             }
 
             // Add longer delay after freeing ASIO device to ensure complete release
             // This prevents device busy errors when switching between ASIO devices
-            System.Threading.Thread.Sleep(300);
+            Thread.Sleep(300);
         }
 
         internal enum AudioThreadOutputMode
