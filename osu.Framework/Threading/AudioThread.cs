@@ -213,10 +213,20 @@ namespace osu.Framework.Threading
             Debug.Assert(ThreadSafety.IsAudioThread);
             Trace.Assert(deviceId != -1); // The real device ID should always be used, as the -1 device has special cases which are hard to work with.
 
+            // 非 Windows 平台强制使用 Default 模式，忽略 ASIO/WASAPI 请求
+            if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
+            {
+                if (outputMode != AudioThreadOutputMode.Default)
+                {
+                    Logger.Log($"Output mode {outputMode} is not supported on {RuntimeInfo.OS}. Falling back to Default.", name: "audio", level: LogLevel.Important);
+                    outputMode = AudioThreadOutputMode.Default;
+                }
+            }
             // Important: stop any existing output first.
             // In particular, WASAPI exclusive can hold the device such that a subsequent Bass.Init() returns Busy.
             // If we can't initialise BASS, we also won't get a chance to clean up the previous output mode.
-            freeAsio();
+            if (RuntimeInfo.OS == RuntimeInfo.Platform.Windows)
+                freeAsio();
             freeWasapi();
 
             // For ASIO mode, add extra delay before initialization to ensure device is fully released
@@ -283,7 +293,8 @@ namespace osu.Framework.Threading
             int selectedDevice = Bass.CurrentDevice;
 
             // For ASIO devices, free ASIO first before freeing BASS to ensure proper cleanup order
-            freeAsio();
+            if (RuntimeInfo.OS == RuntimeInfo.Platform.Windows)
+                freeAsio();
             freeWasapi();
 
             if (canSelectDevice(deviceId))
