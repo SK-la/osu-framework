@@ -390,18 +390,60 @@ namespace osu.Framework.Audio
             GlobalMixerHandle.ValueChanged += handle => usingGlobalMixer.Value = handle.NewValue.HasValue;
 
             // Listen for unified sample rate changes and reinitialize device if supported
-            SampleRate.ValueChanged += _ =>
+            SampleRate.ValueChanged += e =>
             {
-                // Only reinitialize if we're currently using an ASIO device (only ASIO supports runtime sample rate changes)
-                if (hasTypeSuffix(AudioDevice.Value) && tryParseSuffixed(AudioDevice.Value, type_asio, out string _))
+                if (syncingSelection)
+                    return;
+
+                syncingSelection = true;
+
+                try
                 {
-                    Logger.Log($"Sample rate changed to {SampleRate.Value}Hz, reinitializing ASIO device", name: "audio", level: LogLevel.Important);
-                    Logger.Log($"Current audio device before reinitialization: {AudioDevice.Value}", name: "audio", level: LogLevel.Debug);
-                    scheduler.AddOnce(initCurrentDevice);
+                    // Only reinitialize if we're currently using an ASIO device (only ASIO supports runtime sample rate changes)
+                    if (hasTypeSuffix(AudioDevice.Value) && tryParseSuffixed(AudioDevice.Value, type_asio, out string _))
+                    {
+                        Logger.Log($"Sample rate changed to {SampleRate.Value}Hz, reinitializing ASIO device", name: "audio", level: LogLevel.Important);
+                        Logger.Log($"Current audio device before reinitialization: {AudioDevice.Value}", name: "audio", level: LogLevel.Debug);
+
+                        scheduler.AddOnce(() =>
+                        {
+                            initCurrentDevice();
+
+                            if (!IsCurrentDeviceValid())
+                            {
+                                Logger.Log("Sample rate setting failed, trying 48000Hz", name: "audio", level: LogLevel.Important);
+                                SampleRate.Value = 48000;
+
+                                initCurrentDevice();
+
+                                if (!IsCurrentDeviceValid())
+                                {
+                                    Logger.Log("Sample rate setting failed at 48000Hz, trying 44100Hz", name: "audio", level: LogLevel.Important);
+                                    SampleRate.Value = 44100;
+
+                                    initCurrentDevice();
+
+                                    if (!IsCurrentDeviceValid())
+                                    {
+                                        Logger.Log("Sample rate setting failed at 44100Hz, reverting to previous value", name: "audio", level: LogLevel.Important);
+                                        SampleRate.Value = e.OldValue;
+                                        // Note: Could add UI notification here if framework had access to it
+                                    }
+                                }
+                            }
+
+                            syncingSelection = false;
+                        });
+                    }
+                    else
+                    {
+                        Logger.Log($"Sample rate changed to {SampleRate.Value}Hz, but current device ({AudioDevice.Value}) does not support runtime sample rate changes", name: "audio", level: LogLevel.Debug);
+                        syncingSelection = false;
+                    }
                 }
-                else
+                catch
                 {
-                    Logger.Log($"Sample rate changed to {SampleRate.Value}Hz, but current device ({AudioDevice.Value}) does not support runtime sample rate changes", name: "audio", level: LogLevel.Debug);
+                    syncingSelection = false;
                 }
             };
 
