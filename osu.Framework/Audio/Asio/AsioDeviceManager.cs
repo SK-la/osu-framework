@@ -190,7 +190,7 @@ namespace osu.Framework.Audio.Asio
                 try
                 {
                     // Try to get device count to test if ASIO is available
-                    BassAsio.DeviceCount.GetHashCode(); // Simple operation to trigger any DLL loading issues
+                    _ = BassAsio.DeviceCount.GetHashCode(); // Simple operation to trigger any DLL loading issues
                 }
                 catch
                 {
