@@ -20,9 +20,8 @@ namespace osu.Framework.Threading
     /// </summary>
     public class GameThread
     {
-        // 谁用60hz啊
-        internal const int DEFAULT_ACTIVE_HZ = 8000;
-        internal const int DEFAULT_INACTIVE_HZ = 300;
+        internal const int DEFAULT_ACTIVE_HZ = 8000; // 8000到顶了
+        internal const int DEFAULT_INACTIVE_HZ = 120; // 节能模式下用120hz吧
 
         /// <summary>
         /// The name of this thread.
