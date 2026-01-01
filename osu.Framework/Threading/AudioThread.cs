@@ -323,7 +323,7 @@ namespace osu.Framework.Threading
             try
             {
                 // 首先尝试使用默认搜索路径加载
-                var result = NativeLibrary.Load(libraryName, assembly, searchPath ?? DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.SafeDirectories);
+                IntPtr result = NativeLibrary.Load(libraryName, assembly, searchPath ?? DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.SafeDirectories);
                 if (result != IntPtr.Zero)
                     return result;
             }

@@ -578,7 +578,7 @@ namespace osu.Framework.Audio.Asio
                     Logger.Log($"Failed to set format Float for channel 1: {BassAsio.LastError}", LoggingTarget.Runtime, LogLevel.Error);
 
                 // 对齐
-                double targetRate = BassAsio.Rate > 0 ? BassAsio.Rate : (double)DEFAULT_SAMPLE_RATE;
+                double targetRate = BassAsio.Rate > 0 ? BassAsio.Rate : DEFAULT_SAMPLE_RATE;
                 if (!BassAsio.ChannelSetRate(false, 0, targetRate))
                     Logger.Log($"Failed to set rate {targetRate} for channel 0: {BassAsio.LastError}", LoggingTarget.Runtime, LogLevel.Debug);
                 if (!BassAsio.ChannelSetRate(false, 1, targetRate))
@@ -614,7 +614,7 @@ namespace osu.Framework.Audio.Asio
                 return 0;
             }
 
-            // 对于输出通道，我们需要从游戏音频系统中提供音频数据
+            // 对于输出通道，直接从游戏音频系统中提供音频数据
             // 从音频线程获取全局混音器句柄
             int mixerHandle = getGlobalMixerHandle();
 

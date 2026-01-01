@@ -576,6 +576,7 @@ namespace osu.Framework.Audio
                 for (int retry = 0; retry < max_asio_retries; retry++)
                 {
                     Logger.Log($"ASIO initialization attempt {retry + 1}/{max_asio_retries}", name: "audio", level: LogLevel.Debug);
+
                     if (trySetDevice(bass_default_device, mode, asioIndex))
                     {
                         Logger.Log($"ASIO device initialization successful on attempt {retry + 1}", name: "audio", level: LogLevel.Important);
