@@ -16,12 +16,12 @@ namespace osu.Framework.Audio.Asio
     /// </summary>
     public static class AsioDeviceManager
     {
-        /// <summary>
-        /// 常见采样率列表, 用于尝试验证设备支持的采样率。
-        /// 按优先级排序，48kHz优先于44.1kHz。
-        /// 使用int类型因为采样率通常是整数值，double仅在底层API交互时使用。
-        /// </summary>
-        public static readonly int[] SUPPORTED_SAMPLE_RATES = { 48000, 44100, 96000, 192000, 384000 };
+        // /// <summary>
+        // /// 常见采样率列表, 用于尝试验证设备支持的采样率。
+        // /// 按优先级排序，48kHz优先于44.1kHz。
+        // /// 使用int类型因为采样率通常是整数值，double仅在底层API交互时使用。
+        // /// </summary>
+        // 删除 SUPPORTED_SAMPLE_RATES 列表，默认使用 48000
 
         /// <summary>
         /// 未指定、或设置采样率失败时，使用默认采样率48kHz，性能较好。
@@ -176,6 +176,7 @@ namespace osu.Framework.Audio.Asio
                 return false;
             }
 
+            Logger.Log($"Successfully set ASIO device sample rate to {rate}Hz", LoggingTarget.Runtime, LogLevel.Debug);
             return true;
         }
 
@@ -231,12 +232,13 @@ namespace osu.Framework.Audio.Asio
         /// </summary>
         /// <param name="deviceIndex">要初始化的ASIO设备的索引。</param>
         /// <param name="sampleRatesToTry">按顺序尝试的采样率。如果为null，将尝试常见速率。</param>
+        /// <param name="sampleRateToTry">要尝试的采样率。如果为null，则使用默认48000Hz。</param>
         /// <returns>如果初始化成功则为true，否则为false。</returns>
-        public static bool InitializeDevice(int deviceIndex, double[]? sampleRatesToTry = null)
+        public static bool InitializeDevice(int deviceIndex, double? sampleRateToTry = null)
         {
             try
             {
-                Logger.Log($"InitializeDevice called with deviceIndex={deviceIndex}, sampleRatesToTry={string.Join(",", sampleRatesToTry ?? Array.Empty<double>())}", LoggingTarget.Runtime,
+                Logger.Log($"InitializeDevice called with deviceIndex={deviceIndex}, sampleRateToTry={sampleRateToTry}", LoggingTarget.Runtime,
                     LogLevel.Debug);
 
                 // 获取设备信息
@@ -247,48 +249,26 @@ namespace osu.Framework.Audio.Asio
 
                 FreeDevice();
 
-                // 尝试不同的初始化标志
-                AsioInitFlags[] initFlagsToTry = { AsioInitFlags.Thread };
-
-                foreach (var flags in initFlagsToTry)
+                // 删除重试机制，直接尝试初始化
+                if (!tryInitializeDevice(deviceIndex, AsioInitFlags.Thread))
                 {
-                    if (tryInitializeDevice(deviceIndex, flags))
-                    {
-                        // 尝试采样率
-                        double[] ratesToTry = sampleRatesToTry ?? SUPPORTED_SAMPLE_RATES.Select(rate => (double)rate).ToArray();
-                        double successfulRate = 0;
-
-                        foreach (double rate in ratesToTry)
-                        {
-                            if (trySetSampleRate(rate))
-                            {
-                                successfulRate = rate;
-                                break;
-                            }
-                        }
-
-                        if (successfulRate > 0)
-                            return true;
-
-                        // 如果采样率设置失败，释放设备
-                        BassAsio.Free();
-                        break;
-                    }
-
-                    // 处理BufferLost错误
-                    if (BassAsio.LastError == Errors.BufferLost)
-                    {
-                        Logger.Log("BufferLost error detected, trying alternative initialization method", LoggingTarget.Runtime, LogLevel.Important);
-                        FreeDevice();
-                    }
+                    Logger.Log($"Failed to initialize ASIO device {deviceIndex} with Thread flag", LoggingTarget.Runtime, LogLevel.Error);
+                    return false;
                 }
 
-                // 记录最终错误
-                var finalError = BassAsio.LastError;
-                Logger.Log($"All ASIO initialization attempts failed for device {deviceIndex}. Final error: {finalError} (Code: {(int)finalError}) - {getAsioErrorDescription((int)finalError)}",
-                    LoggingTarget.Runtime, LogLevel.Important);
-                Logger.Log($"Device info: Name='{deviceInfo.Name}', Driver='{deviceInfo.Driver}'", LoggingTarget.Runtime, LogLevel.Important);
-                return false;
+                // 尝试采样率：使用传入的值或默认48000
+                double rateToTry = sampleRateToTry ?? 48000.0;
+                if (!trySetSampleRate(rateToTry))
+                {
+                    Logger.Log($"Failed to set sample rate {rateToTry}Hz for ASIO device {deviceIndex}", LoggingTarget.Runtime, LogLevel.Error);
+                    BassAsio.Free();
+                    return false;
+                }
+
+                double successfulRate = rateToTry;
+
+                Logger.Log($"ASIO device {deviceIndex} initialized successfully with sample rate {successfulRate}Hz", LoggingTarget.Runtime, LogLevel.Important);
+                return true;
             }
             catch (Exception ex)
             {
@@ -469,19 +449,18 @@ namespace osu.Framework.Audio.Asio
                     return supportedRates;
                 }
 
-                foreach (int rate in SUPPORTED_SAMPLE_RATES)
+                // 只检查默认 48000 是否支持
+                int rate = 48000;
+                try
                 {
-                    try
+                    if (BassAsio.CheckRate(rate))
                     {
-                        if (BassAsio.CheckRate(rate))
-                        {
-                            supportedRates.Add(rate);
-                        }
+                        supportedRates.Add(rate);
                     }
-                    catch (Exception ex)
-                    {
-                        Logger.Log($"Exception while checking sample rate {rate}Hz: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
-                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log($"Exception while checking sample rate {rate}Hz: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
                 }
 
                 FreeDevice();

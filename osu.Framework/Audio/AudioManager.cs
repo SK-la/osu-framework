@@ -411,25 +411,7 @@ namespace osu.Framework.Audio
 
                             if (!IsCurrentDeviceValid())
                             {
-                                Logger.Log("Sample rate setting failed, trying 48000Hz", name: "audio", level: LogLevel.Important);
-                                SampleRate.Value = 48000;
-
-                                initCurrentDevice();
-
-                                if (!IsCurrentDeviceValid())
-                                {
-                                    Logger.Log("Sample rate setting failed at 48000Hz, trying 44100Hz", name: "audio", level: LogLevel.Important);
-                                    SampleRate.Value = 44100;
-
-                                    initCurrentDevice();
-
-                                    if (!IsCurrentDeviceValid())
-                                    {
-                                        Logger.Log("Sample rate setting failed at 44100Hz, reverting to previous value", name: "audio", level: LogLevel.Important);
-                                        SampleRate.Value = e.OldValue;
-                                        // Note: Could add UI notification here if framework had access to it
-                                    }
-                                }
+                                Logger.Log("Sample rate setting failed, device invalid", name: "audio", level: LogLevel.Error);
                             }
 
                             syncingSelection = false;

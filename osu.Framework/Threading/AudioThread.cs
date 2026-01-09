@@ -1,6 +1,7 @@
 ﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using osu.Framework.Statistics;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -19,7 +20,6 @@ using osu.Framework.Bindables;
 using osu.Framework.Development;
 using osu.Framework.Logging;
 using osu.Framework.Platform.Linux.Native;
-using osu.Framework.Statistics;
 
 namespace osu.Framework.Threading
 {
@@ -200,7 +200,7 @@ namespace osu.Framework.Threading
         /// </summary>
         private readonly Bindable<int?> globalMixerHandle = new Bindable<int?>();
 
-        internal bool InitDevice(int deviceId, AudioThreadOutputMode outputMode, int? asioDeviceIndex = null, int? preferredSampleRate = null)
+        internal bool InitDevice(int deviceId, AudioThreadOutputMode outputMode, int? asioDeviceIndex = null, double? preferredSampleRate = null)
         {
             Debug.Assert(ThreadSafety.IsAudioThread);
             Trace.Assert(deviceId != -1); // The real device ID should always be used, as the -1 device has special cases which are hard to work with.
@@ -277,13 +277,14 @@ namespace osu.Framework.Threading
 
             // 对于ASIO设备，先释放ASIO再释放BASS以确保正确的清理顺序
             freeAsio();
-            freeWasapi();
 
             if (canSelectDevice(deviceId))
             {
                 Bass.CurrentDevice = deviceId;
                 Bass.Free();
             }
+
+            freeWasapi();
 
             if (selectedDevice != deviceId && canSelectDevice(selectedDevice))
                 Bass.CurrentDevice = selectedDevice;
@@ -607,103 +608,94 @@ namespace osu.Framework.Threading
             Logger.Log(message, name: "audio", level: LogLevel.Error);
         }
 
-        private bool initAsio(int asioDeviceIndex, int? preferredSampleRate = null)
+        private bool initAsio(int asioDeviceIndex, double? preferredSampleRate = null)
         {
             Logger.Log($"Initializing ASIO device {asioDeviceIndex} with preferred sample rate {preferredSampleRate}Hz", name: "audio", level: LogLevel.Important);
 
             freeAsio();
 
-            // 使用新的AsioDeviceManager进行初始化
             // 使用来自AudioManager的统一采样率
-            List<double> ratesToTry = new List<double>();
-
-            if (preferredSampleRate.HasValue)
-                ratesToTry.Add(preferredSampleRate.Value);
-
-            foreach (int rate in AsioDeviceManager.SUPPORTED_SAMPLE_RATES)
+            if (Manager != null)
             {
-                if (!ratesToTry.Contains(rate))
-                    ratesToTry.Add(rate);
+                preferredSampleRate = Manager.SampleRate.Value;
+
+                if (!AsioDeviceManager.InitializeDevice(asioDeviceIndex, preferredSampleRate))
+                {
+                    Logger.Log($"AsioDeviceManager.InitializeDevice({asioDeviceIndex}, {preferredSampleRate}) 失败", name: "audio", level: LogLevel.Error);
+                    // 不要自动释放BASS设备 - 让AudioManager处理回退决策
+                    // 这可以防止过度激进的设备切换导致设备可用性降低
+                    return false;
+                }
+
+                // 初始化后获取设备信息
+                var deviceInfo = AsioDeviceManager.GetCurrentDeviceInfo();
+
+                if (deviceInfo == null)
+                {
+                    Logger.Log("初始化后无法获取ASIO设备信息", name: "audio", level: LogLevel.Error);
+                    freeAsio();
+                    // 不要自动释放BASS设备 - 让AudioManager处理回退决策
+                    return false;
+                }
+
+                int outputChannels = Math.Max(1, deviceInfo.Value.Outputs);
+                int inputChannels = Math.Max(0, deviceInfo.Value.Inputs);
+
+                // 验证设备信息
+                if (outputChannels < 2)
+                {
+                    Logger.Log($"ASIO设备输出通道不足 ({outputChannels})，立体声至少需要2个通道", name: "audio", level: LogLevel.Important);
+                    freeAsio();
+                    FreeDevice(Bass.CurrentDevice);
+                    return false;
+                }
+
+                double sampleRate = BassAsio.Rate;
+                Logger.Log($"ASIO设备采样率: {sampleRate}Hz", name: "audio", level: LogLevel.Verbose);
+
+                // 验证采样率
+                if (sampleRate <= 0 || sampleRate > 1000000 || double.IsNaN(sampleRate) || double.IsInfinity(sampleRate))
+                {
+                    Logger.Log($"检测到无效采样率 ({sampleRate}Hz)，使用 {AsioDeviceManager.DEFAULT_SAMPLE_RATE}Hz 作为回退", name: "audio", level: LogLevel.Important);
+                    sampleRate = AsioDeviceManager.DEFAULT_SAMPLE_RATE;
+                }
+
+                // Logger.Log($"使用ASIO设备配置 - 输出: {outputChannels}, 输入: {inputChannels}, 采样率: {sampleRate}Hz", name: "audio", level: LogLevel.Verbose);
+
+                // 创建立体声混音器（游戏音频始终是立体声）
+                const int mixer_channels = 2;
+                // Logger.Log($"创建ASIO混音器流: 采样率={sampleRate}, 混音器通道={mixer_channels} (立体声)", name: "audio", level: LogLevel.Verbose);
+                globalMixerHandle.Value = BassMix.CreateMixerStream((int)sampleRate, mixer_channels, BassFlags.MixerNonStop | BassFlags.Decode | BassFlags.Float);
+
+                if (globalMixerHandle.Value == 0)
+                {
+                    var mixerError = Bass.LastError;
+                    Logger.Log($"创建ASIO混音器流失败: {(int)mixerError} ({mixerError}), 采样率={sampleRate}, 通道={mixer_channels}", name: "audio", level: LogLevel.Error);
+                    freeAsio();
+                    // 释放BASS设备以便AudioManager可以使用不同的设备重试
+                    FreeDevice(Bass.CurrentDevice);
+                    return false;
+                }
+
+                // Logger.Log($"创建了带有 {mixer_channels} 个通道的ASIO混音器流，采样率为 {sampleRate}Hz (句柄: {globalMixerHandle.Value})", name: "audio", level: LogLevel.Verbose);
+
+                // 为ASIO设备管理器设置全局混音器句柄
+                AsioDeviceManager.SetGlobalMixerHandle(globalMixerHandle.Value.Value);
+
+                // 使用设备管理器启动ASIO设备
+                if (!AsioDeviceManager.StartDevice())
+                {
+                    Logger.Log("AsioDeviceManager.StartDevice() 失败", name: "audio", level: LogLevel.Error);
+                    freeAsio();
+                    // 不要自动释放BASS设备 - 让AudioManager处理回退决策
+                    return false;
+                }
+
+                // Logger.Log($"ASIO设备初始化成功 - 采样率: {sampleRate}Hz, 输出: {outputChannels}, 输入: {inputChannels}", name: "audio", level: LogLevel.Important);
+
+                // 通知ASIO设备已使用实际采样率初始化
+                Manager?.OnAsioDeviceInitialized?.Invoke(sampleRate);
             }
-
-            double[] sampleRatesToTry = ratesToTry.ToArray();
-
-            if (!AsioDeviceManager.InitializeDevice(asioDeviceIndex, sampleRatesToTry))
-            {
-                Logger.Log($"AsioDeviceManager.InitializeDevice({asioDeviceIndex}, [{string.Join(",", sampleRatesToTry)}]) 失败", name: "audio", level: LogLevel.Error);
-                // 不要自动释放BASS设备 - 让AudioManager处理回退决策
-                // 这可以防止过度激进的设备切换导致设备可用性降低
-                return false;
-            }
-
-            // 初始化后获取设备信息
-            var deviceInfo = AsioDeviceManager.GetCurrentDeviceInfo();
-
-            if (deviceInfo == null)
-            {
-                Logger.Log("初始化后无法获取ASIO设备信息", name: "audio", level: LogLevel.Error);
-                freeAsio();
-                // 不要自动释放BASS设备 - 让AudioManager处理回退决策
-                return false;
-            }
-
-            int outputChannels = Math.Max(1, deviceInfo.Value.Outputs);
-            int inputChannels = Math.Max(0, deviceInfo.Value.Inputs);
-
-            // 验证设备信息
-            if (outputChannels < 2)
-            {
-                Logger.Log($"ASIO设备输出通道不足 ({outputChannels})，立体声至少需要2个通道", name: "audio", level: LogLevel.Important);
-                freeAsio();
-                FreeDevice(Bass.CurrentDevice);
-                return false;
-            }
-
-            double sampleRate = BassAsio.Rate;
-            Logger.Log($"ASIO设备采样率: {sampleRate}Hz", name: "audio", level: LogLevel.Verbose);
-
-            // 验证采样率
-            if (sampleRate <= 0 || sampleRate > 1000000 || double.IsNaN(sampleRate) || double.IsInfinity(sampleRate))
-            {
-                Logger.Log($"检测到无效采样率 ({sampleRate}Hz)，使用 {AsioDeviceManager.DEFAULT_SAMPLE_RATE}Hz 作为回退", name: "audio", level: LogLevel.Important);
-                sampleRate = AsioDeviceManager.DEFAULT_SAMPLE_RATE;
-            }
-
-            Logger.Log($"使用ASIO设备配置 - 输出: {outputChannels}, 输入: {inputChannels}, 采样率: {sampleRate}Hz", name: "audio", level: LogLevel.Verbose);
-
-            // 创建立体声混音器（游戏音频始终是立体声）
-            const int mixer_channels = 2;
-            Logger.Log($"创建ASIO混音器流: 采样率={sampleRate}, 混音器通道={mixer_channels} (立体声)", name: "audio", level: LogLevel.Verbose);
-            globalMixerHandle.Value = BassMix.CreateMixerStream((int)sampleRate, mixer_channels, BassFlags.MixerNonStop | BassFlags.Decode | BassFlags.Float);
-
-            if (globalMixerHandle.Value == 0)
-            {
-                var mixerError = Bass.LastError;
-                Logger.Log($"创建ASIO混音器流失败: {(int)mixerError} ({mixerError}), 采样率={sampleRate}, 通道={mixer_channels}", name: "audio", level: LogLevel.Error);
-                freeAsio();
-                // 释放BASS设备以便AudioManager可以使用不同的设备重试
-                FreeDevice(Bass.CurrentDevice);
-                return false;
-            }
-
-            Logger.Log($"创建了带有 {mixer_channels} 个通道的ASIO混音器流，采样率为 {sampleRate}Hz (句柄: {globalMixerHandle.Value})", name: "audio", level: LogLevel.Verbose);
-
-            // 为ASIO设备管理器设置全局混音器句柄
-            AsioDeviceManager.SetGlobalMixerHandle(globalMixerHandle.Value.Value);
-
-            // 使用设备管理器启动ASIO设备
-            if (!AsioDeviceManager.StartDevice())
-            {
-                Logger.Log("AsioDeviceManager.StartDevice() 失败", name: "audio", level: LogLevel.Error);
-                freeAsio();
-                // 不要自动释放BASS设备 - 让AudioManager处理回退决策
-                return false;
-            }
-
-            Logger.Log($"ASIO设备初始化成功 - 采样率: {sampleRate}Hz, 输出: {outputChannels}, 输入: {inputChannels}", name: "audio", level: LogLevel.Important);
-
-            // 通知ASIO设备已使用实际采样率初始化
-            Manager?.OnAsioDeviceInitialized?.Invoke(sampleRate);
 
             return true;
         }
