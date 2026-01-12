@@ -231,7 +231,6 @@ namespace osu.Framework.Audio.Asio
         /// 初始化ASIO设备。
         /// </summary>
         /// <param name="deviceIndex">要初始化的ASIO设备的索引。</param>
-        /// <param name="sampleRatesToTry">按顺序尝试的采样率。如果为null，将尝试常见速率。</param>
         /// <param name="sampleRateToTry">要尝试的采样率。如果为null，则使用默认48000Hz。</param>
         /// <returns>如果初始化成功则为true，否则为false。</returns>
         public static bool InitializeDevice(int deviceIndex, double? sampleRateToTry = null)

@@ -12,7 +12,7 @@ using osu.Framework.Graphics.Containers;
 using osu.Framework.Input.Events;
 using osu.Framework.Input.States;
 using osu.Framework.Lists;
-using osu.Framework.Logging;
+// using osu.Framework.Logging;
 using osuTK;
 
 namespace osu.Framework.Input.Bindings
@@ -328,9 +328,10 @@ namespace osu.Framework.Input.Bindings
                 }
             }
 
-            if (handled != null)
-                Logger.Log($"Pressed ({pressed}) handled by {handled}.", LoggingTarget.Runtime, LogLevel.Debug);
-
+// #if DEBUG
+//             if (handled != null)
+//                 Logger.Log($"Pressed ({pressed}) handled by {handled}.", LoggingTarget.Runtime, LogLevel.Debug);
+// #endif
             return handled;
         }
 
