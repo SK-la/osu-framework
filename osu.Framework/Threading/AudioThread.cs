@@ -23,10 +23,42 @@ using osu.Framework.Platform.Linux.Native;
 
 namespace osu.Framework.Threading
 {
+    /// <summary>
+    /// EzOsuLatency 输入数据结构体
+    /// </summary>
+    public struct EzLatencyInputData
+    {
+        public double InputTime;
+        public object KeyValue;
+        public double JudgeTime;
+        public double PlaybackTime;
+    }
+
+    /// <summary>
+    /// EzOsuLatency 硬件数据结构体
+    /// </summary>
+    public struct EzLatencyHardwareData
+    {
+        public double DriverTime;
+        public double OutputHardwareTime;
+        public double InputHardwareTime;
+        public double LatencyDifference;
+    }
+
     public class AudioThread : GameThread
     {
         private static int wasapiNativeUnavailableLogged;
         private static int asioResolverRegistered;
+
+        // EzOsuLatency 模块
+        internal readonly EzLatencyTestModule LatencyTestModule;
+        internal readonly EzLogModule LogModule;
+        internal readonly EzDriverModule DriverModule;
+        internal readonly EzHardwareModule HardwareModule;
+
+        // EzOsuLatency 数据结构体
+        // NOTE: Previously these were present as placeholders; we now pass local structs from the playback path.
+        // Keep no instance fields to avoid misleading shared mutable state.
 
         public AudioThread()
             : base(name: "Audio")
@@ -37,6 +69,12 @@ namespace osu.Framework.Threading
 
             OnNewFrame += onNewFrame;
             PreloadBass();
+
+            // 初始化EzOsuLatency模块
+            LatencyTestModule = new EzLatencyTestModule();
+            LogModule = new EzLogModule();
+            DriverModule = new EzDriverModule();
+            HardwareModule = new EzHardwareModule();
         }
 
         public override bool IsCurrent => ThreadSafety.IsAudioThread;
@@ -79,6 +117,9 @@ namespace osu.Framework.Threading
                     m.Update();
                 }
             }
+
+            // EzOsuLatency: 定期运行延迟测试
+            LatencyTestModule.RunPeriodicTest();
         }
 
         internal void RegisterManager(AudioManager manager)
@@ -750,6 +791,108 @@ namespace osu.Framework.Threading
             // 释放ASIO设备后添加较长延迟
             // 这可以防止设备繁忙错误，当在ASIO设备之间切换时
             Thread.Sleep(300);
+        }
+
+        /// <summary>
+        /// 获取ASIO驱动的输出延迟
+        /// </summary>
+        /// <returns>输出延迟（毫秒），失败返回-1</returns>
+        internal double GetAsioOutputLatency()
+        {
+            try
+            {
+                if (BassAsio.IsStarted)
+                {
+                    // 估算 ASIO 输出延迟
+                    return 2.0; // ASIO 通常延迟较低
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"获取ASIO输出延迟失败: {ex.Message}", name: "audio", level: LogLevel.Error);
+            }
+
+            return -1;
+        }
+
+        /// <summary>
+        /// 获取WASAPI流的延迟
+        /// </summary>
+        /// <returns>流延迟（毫秒），失败返回-1</returns>
+        internal double GetWasapiStreamLatency()
+        {
+            try
+            {
+                if (BassWasapi.IsStarted)
+                {
+                    // 使用 IAudioClient::GetStreamLatency
+                    // 注意：BassWasapi 可能不直接暴露这个，需要通过底层 API
+                    // 暂时返回估算值
+                    return 10.0; // 估算的 WASAPI 延迟
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"获取WASAPI流延迟失败: {ex.Message}", name: "audio", level: LogLevel.Error);
+            }
+
+            return -1;
+        }
+
+        /// <summary>
+        /// 获取当前音频驱动的缓冲区延迟
+        /// </summary>
+        /// <param name="outputMode">输出模式</param>
+        /// <returns>缓冲区延迟（毫秒），失败返回-1</returns>
+        internal double GetDriverBufferLatency(AudioThreadOutputMode outputMode)
+        {
+            switch (outputMode)
+            {
+                case AudioThreadOutputMode.Asio:
+                    return GetAsioOutputLatency();
+
+                case AudioThreadOutputMode.WasapiExclusive:
+                case AudioThreadOutputMode.WasapiShared:
+                    return GetWasapiStreamLatency();
+
+                default:
+                    return -1;
+            }
+        }
+
+        /// <summary>
+        /// 记录延迟数据到日志
+        /// </summary>
+        /// <param name="inputLatency">输入延迟</param>
+        /// <param name="playbackLatency">播放延迟</param>
+        /// <param name="totalLatency">总延迟</param>
+        /// <param name="uncontrollableLatency">不可控延迟</param>
+        internal void LogLatencyData(double inputLatency, double playbackLatency, double totalLatency, double uncontrollableLatency)
+        {
+            const string driverType = "Unknown";
+            int sampleRate = 44100;
+            const int bufferSize = 256;
+
+            // 获取当前驱动信息
+            if (Manager != null)
+            {
+                sampleRate = Manager.SampleRate.Value;
+                // TODO: 获取bufferSize
+            }
+
+            // 确定驱动类型
+            // TODO: 从当前输出模式确定驱动类型
+
+            LogModule.LogLatency(
+                LatencyTestModule.RecordTimestamp(),
+                driverType,
+                sampleRate,
+                bufferSize,
+                inputLatency,
+                playbackLatency,
+                totalLatency,
+                uncontrollableLatency
+            );
         }
 
         internal enum AudioThreadOutputMode

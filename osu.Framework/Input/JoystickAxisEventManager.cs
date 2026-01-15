@@ -10,7 +10,7 @@ using JetBrains.Annotations;
 using osu.Framework.Graphics;
 using osu.Framework.Input.Events;
 using osu.Framework.Input.States;
-using osu.Framework.Logging;
+// using osu.Framework.Logging;
 
 namespace osu.Framework.Input
 {
@@ -55,8 +55,8 @@ namespace osu.Framework.Input
         {
             var handledBy = drawables.FirstOrDefault(target => target.TriggerEvent(e));
 
-            if (handledBy != null)
-                Logger.Log($"{e} handled by {handledBy}.", LoggingTarget.Runtime, LogLevel.Debug);
+            // if (handledBy != null)
+            //     Logger.Log($"{e} handled by {handledBy}.", LoggingTarget.Runtime, LogLevel.Debug);
 
             return handledBy;
         }
