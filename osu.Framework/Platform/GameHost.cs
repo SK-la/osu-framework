@@ -1426,7 +1426,7 @@ namespace osu.Framework.Platform
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxTexturesUploadedPerFrame);
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxPixelsUploadedPerFrame);
 
-            if (Renderer is not osu.Framework.Graphics.Rendering.Renderer renderer)
+            if (Renderer is not Renderer renderer)
                 return;
 
             DrawThread?.Scheduler.Add(() =>
@@ -1447,7 +1447,7 @@ namespace osu.Framework.Platform
         /// </summary>
         public void RestoreTextureUploadLimits()
         {
-            if (Renderer is not osu.Framework.Graphics.Rendering.Renderer renderer)
+            if (Renderer is not Renderer renderer)
                 return;
 
             if (originalMaxTexturesUploadedPerFrame == null || originalMaxPixelsUploadedPerFrame == null)

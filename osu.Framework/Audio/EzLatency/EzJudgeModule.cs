@@ -2,9 +2,10 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Diagnostics;
 using osu.Framework.Logging;
 
-namespace osu.Framework.Audio
+namespace osu.Framework.Audio.EzLatency
 {
     /// <summary>
     /// EzJudgeModule 负责处理判定时间的计算和记录。
@@ -17,7 +18,7 @@ namespace osu.Framework.Audio
         /// </summary>
         public static bool Enabled { get; set; } = false;
 
-        private static readonly System.Diagnostics.Stopwatch stopwatch = new System.Diagnostics.Stopwatch();
+        private static readonly Stopwatch stopwatch = new Stopwatch();
 
         // 存储判定时间
         internal static double JudgeTime;

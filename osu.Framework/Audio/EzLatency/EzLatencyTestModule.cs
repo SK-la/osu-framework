@@ -5,7 +5,7 @@ using System.Diagnostics;
 using osu.Framework.Bindables;
 using osu.Framework.Logging;
 
-namespace osu.Framework.Audio
+namespace osu.Framework.Audio.EzLatency
 {
     /// <summary>
     /// EzOsuLatency 延迟测试模块
@@ -75,7 +75,7 @@ namespace osu.Framework.Audio
             // 5. 计算 T_out - T_call
 
             // 临时模拟：假设延迟为缓冲区延迟 + 硬件延迟
-            double bufferLatency = (BufferSize.Value / (double)SampleRate.Value) * 1000;
+            double bufferLatency = BufferSize.Value / (double)SampleRate.Value * 1000;
             const double hardware_latency = 1.5;
             double simulatedLatency = bufferLatency + hardware_latency;
 
@@ -133,6 +133,7 @@ namespace osu.Framework.Audio
         public void RunPeriodicTest()
         {
             double currentTime = RecordTimestamp();
+
             if (currentTime - lastTestTime > 1000) // 每秒测试一次
             {
                 RunTest();
@@ -155,7 +156,7 @@ namespace osu.Framework.Audio
         {
             // 基于配置参数模拟延迟
             double baseLatency = DriverType.Value == "ASIO" ? 2.0 : 5.0; // ASIO通常延迟更低
-            double bufferLatency = (BufferSize.Value / (double)SampleRate.Value) * 1000; // 缓冲区延迟
+            double bufferLatency = BufferSize.Value / (double)SampleRate.Value * 1000; // 缓冲区延迟
             const double hardware_latency = 1.5; // 硬件层延迟
 
             return baseLatency + bufferLatency + hardware_latency;

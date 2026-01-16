@@ -5,7 +5,7 @@ using System;
 using System.Diagnostics;
 using osu.Framework.Logging;
 
-namespace osu.Framework.Audio
+namespace osu.Framework.Audio.EzLatency
 {
     /// <summary>
     /// EzHardwareModule 负责硬件层延迟的测量和管理。
@@ -58,7 +58,8 @@ namespace osu.Framework.Audio
                 InputHardwareTime = stopwatch.Elapsed.TotalMilliseconds;
                 LatencyDifference = OutputHardwareTime - EzInputModule.InputTime; // 首尾延迟差值：T_out - T_in
                 // 一次性打印硬件数据的日志
-                Logger.Log($"[EzOsuLatency] Driver: {driverTime:F2}ms, OutputHW: {OutputHardwareTime:F2}ms, InputHW: {InputHardwareTime:F2}ms, LatencyDiff: {LatencyDifference:F2}ms", name: "audio", level: LogLevel.Debug);
+                Logger.Log($"[EzOsuLatency] Driver: {driverTime:F2}ms, OutputHW: {OutputHardwareTime:F2}ms, InputHW: {InputHardwareTime:F2}ms, LatencyDiff: {LatencyDifference:F2}ms", name: "audio",
+                    level: LogLevel.Debug);
             }
         }
 

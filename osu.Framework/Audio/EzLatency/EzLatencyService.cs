@@ -1,8 +1,11 @@
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// See the LICENCE file in the repository root for full licence text.
+
+using System;
+
 namespace osu.Framework.Audio.EzLatency
 {
-    #nullable disable
-    using System;
-
+#nullable disable
     /// <summary>
     /// Standalone singleton service which collects low-level framework latency records
     /// and exposes higher-level EzLatencyRecord events for consumers in the osu layer.

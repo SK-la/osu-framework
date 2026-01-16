@@ -6,7 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Logging;
 
-namespace osu.Framework.Audio
+namespace osu.Framework.Audio.EzLatency
 {
     /// <summary>
     /// EzOsuLatency 日志模块
@@ -26,9 +26,9 @@ namespace osu.Framework.Audio
         public bool Enabled { get; set; } = false;
 
         // 存储延迟记录用于统计
-        private readonly List<osu.Framework.Audio.EzLatency.EzLatencyRecord> latencyRecords = new List<osu.Framework.Audio.EzLatency.EzLatencyRecord>();
+        private readonly List<EzLatencyRecord> latencyRecords = new List<EzLatencyRecord>();
 
-        public event System.Action<osu.Framework.Audio.EzLatency.EzLatencyRecord>? OnNewRecord;
+        public event Action<EzLatencyRecord>? OnNewRecord;
 
         /// <summary>
         /// 延迟统计数据结构体
@@ -45,12 +45,13 @@ namespace osu.Framework.Audio
         /// <summary>
         /// 记录单个延迟事件并返回延迟信息（用于实时输出）
         /// </summary>
-        public osu.Framework.Audio.EzLatency.EzLatencyRecord? RecordLatencyEventAndGet(double inputTime, double judgeTime, double playbackTime, double driverTime, double outputHardwareTime, double inputHardwareTime, double latencyDifference, osu.Framework.Threading.EzLatencyInputData inputData = default, osu.Framework.Threading.EzLatencyHardwareData hardwareData = default)
+        public EzLatencyRecord? RecordLatencyEventAndGet(double inputTime, double judgeTime, double playbackTime, double driverTime, double outputHardwareTime, double inputHardwareTime,
+                                                         double latencyDifference, EzLatencyInputData inputData = default, EzLatencyHardwareData hardwareData = default)
         {
             if (!Enabled)
                 return null;
 
-            var record = new osu.Framework.Audio.EzLatency.EzLatencyRecord
+            var record = new EzLatencyRecord
             {
                 Timestamp = DateTimeOffset.Now,
                 InputTime = inputTime,
@@ -128,8 +129,10 @@ namespace osu.Framework.Audio
                 return;
             }
 
-            string message1 = $"Input->Judgement: {stats.AvgInputToJudge:F2}ms, Input->Audio: {stats.AvgInputToPlayback:F2}ms, Audio->Judgement: {stats.AvgPlaybackToJudge:F2}ms (based on {stats.RecordCount} complete records)";
-            string message2 = $"Input->Judgement: {stats.AvgInputToJudge:F2}ms, \nInput->Audio: {stats.AvgInputToPlayback:F2}ms, \nAudio->Judgement: {stats.AvgPlaybackToJudge:F2}ms \n(based on {stats.RecordCount} complete records)";
+            string message1 =
+                $"Input->Judgement: {stats.AvgInputToJudge:F2}ms, Input->Audio: {stats.AvgInputToPlayback:F2}ms, Audio->Judgement: {stats.AvgPlaybackToJudge:F2}ms (based on {stats.RecordCount} complete records)";
+            string message2 =
+                $"Input->Judgement: {stats.AvgInputToJudge:F2}ms, \nInput->Audio: {stats.AvgInputToPlayback:F2}ms, \nAudio->Judgement: {stats.AvgPlaybackToJudge:F2}ms \n(based on {stats.RecordCount} complete records)";
 
             Logger.Log($"[EzOsuLatency] Analysis: {message1}");
             Logger.Log($"[EzOsuLatency] Analysis: \n{message2}", LoggingTarget.Runtime, LogLevel.Important);
@@ -149,7 +152,9 @@ namespace osu.Framework.Audio
         public void LogLatency(double timestamp, string driverType, int sampleRate, int bufferSize, double inputLatency, double playbackLatency, double totalLatency, double uncontrollableLatency)
         {
             if (Enabled)
-                Logger.Log($"[EzOsuLatency] Latency data: Timestamp={timestamp:F2}, Driver={driverType}, SampleRate={sampleRate}, Buffer={bufferSize}, Input={inputLatency:F2}ms, Playback={playbackLatency:F2}ms, Total={totalLatency:F2}ms, Uncontrollable={uncontrollableLatency:F2}ms", LoggingTarget.Runtime, LogLevel.Debug);
+                Logger.Log(
+                    $"[EzOsuLatency] Latency data: Timestamp={timestamp:F2}, Driver={driverType}, SampleRate={sampleRate}, Buffer={bufferSize}, Input={inputLatency:F2}ms, Playback={playbackLatency:F2}ms, Total={totalLatency:F2}ms, Uncontrollable={uncontrollableLatency:F2}ms",
+                    LoggingTarget.Runtime, LogLevel.Debug);
         }
 
         /// <summary>

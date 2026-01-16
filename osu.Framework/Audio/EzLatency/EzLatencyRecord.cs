@@ -1,8 +1,11 @@
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// See the LICENCE file in the repository root for full licence text.
+
+using System;
+
 namespace osu.Framework.Audio.EzLatency
 {
-    #nullable disable
-    using System;
-
+#nullable disable
     public class EzLatencyRecord
     {
         // high-level fields
@@ -20,7 +23,7 @@ namespace osu.Framework.Audio.EzLatency
         public double LatencyDifference { get; set; }
 
         // optional low-level structs copied from AudioThread for richer diagnostics
-        public osu.Framework.Threading.EzLatencyInputData InputData { get; set; }
-        public osu.Framework.Threading.EzLatencyHardwareData HardwareData { get; set; }
+        public EzLatencyInputData InputData { get; set; }
+        public EzLatencyHardwareData HardwareData { get; set; }
     }
 }

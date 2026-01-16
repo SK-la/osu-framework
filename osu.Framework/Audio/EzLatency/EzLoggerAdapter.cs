@@ -1,11 +1,14 @@
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// See the LICENCE file in the repository root for full licence text.
+
+using System;
+using System.IO;
+using osu.Framework.Logging;
+using osu.Framework.Threading;
+
 namespace osu.Framework.Audio.EzLatency
 {
-    #nullable disable
-    using System;
-    using System.IO;
-    using osu.Framework.Logging;
-    using osu.Framework.Threading;
-
+#nullable disable
     public class EzLoggerAdapter : IEzLatencyLogger
     {
         private readonly Scheduler scheduler;

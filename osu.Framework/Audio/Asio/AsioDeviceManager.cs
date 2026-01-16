@@ -16,13 +16,6 @@ namespace osu.Framework.Audio.Asio
     /// </summary>
     public static class AsioDeviceManager
     {
-        // /// <summary>
-        // /// 常见采样率列表, 用于尝试验证设备支持的采样率。
-        // /// 按优先级排序，48kHz优先于44.1kHz。
-        // /// 使用int类型因为采样率通常是整数值，double仅在底层API交互时使用。
-        // /// </summary>
-        // 删除 SUPPORTED_SAMPLE_RATES 列表，默认使用 48000
-
         /// <summary>
         /// 未指定、或设置采样率失败时，使用默认采样率48kHz，性能较好。
         /// </summary>
@@ -31,32 +24,32 @@ namespace osu.Framework.Audio.Asio
         /// <summary>
         /// 最大重试次数，用于处理设备繁忙的情况。
         /// </summary>
-        private const int MAX_RETRY_COUNT = 3;
+        private const int max_retry_count = 3;
 
         /// <summary>
         /// 重试间隔时间（毫秒）。
         /// </summary>
-        private const int RETRY_DELAY_MS = 100;
+        private const int retry_delay_ms = 100;
 
         /// <summary>
         /// 设备释放延迟时间（毫秒）。
         /// </summary>
-        private const int DEVICE_FREE_DELAY_MS = 100;
+        private const int device_free_delay_ms = 100;
 
         /// <summary>
         /// 强制重置延迟时间（毫秒）。
         /// </summary>
-        private const int FORCE_RESET_DELAY_MS = 200;
+        private const int force_reset_delay_ms = 200;
 
         /// <summary>
         /// 采样率容差，用于验证设置是否成功。
         /// </summary>
-        private const double SAMPLE_RATE_TOLERANCE = 1.0;
+        private const double sample_rate_tolerance = 1.0;
 
         /// <summary>
         /// 静音帧日志间隔。
         /// </summary>
-        private const int SILENCE_LOG_INTERVAL = 200;
+        private const int silence_log_interval = 200;
 
         /// <summary>
         /// ASIO音频路由的全局混音器句柄。
@@ -117,7 +110,7 @@ namespace osu.Framework.Audio.Asio
         /// <returns>如果初始化成功则为true，否则为false。</returns>
         private static bool tryInitializeDevice(int deviceIndex, AsioInitFlags flags)
         {
-            for (int retryCount = 0; retryCount < MAX_RETRY_COUNT; retryCount++)
+            for (int retryCount = 0; retryCount < max_retry_count; retryCount++)
             {
                 if (BassAsio.Init(deviceIndex, flags))
                 {
@@ -131,10 +124,10 @@ namespace osu.Framework.Audio.Asio
                 // 如果设备繁忙，等待并重试
                 if ((int)bassError == 3 || bassError == Errors.Busy)
                 {
-                    if (retryCount < MAX_RETRY_COUNT - 1)
+                    if (retryCount < max_retry_count - 1)
                     {
-                        Logger.Log($"Device busy, waiting {RETRY_DELAY_MS}ms before retry {retryCount + 1}/{MAX_RETRY_COUNT}", LoggingTarget.Runtime, LogLevel.Important);
-                        Thread.Sleep(RETRY_DELAY_MS);
+                        Logger.Log($"Device busy, waiting {retry_delay_ms}ms before retry {retryCount + 1}/{max_retry_count}", LoggingTarget.Runtime, LogLevel.Important);
+                        Thread.Sleep(retry_delay_ms);
                         continue;
                     }
                 }
@@ -170,7 +163,7 @@ namespace osu.Framework.Audio.Asio
 
             double actualRate = BassAsio.Rate;
 
-            if (Math.Abs(actualRate - rate) >= SAMPLE_RATE_TOLERANCE)
+            if (Math.Abs(actualRate - rate) >= sample_rate_tolerance)
             {
                 Logger.Log($"Failed to set ASIO device sample rate to {rate}Hz (actual: {actualRate}Hz)", LoggingTarget.Runtime, LogLevel.Error);
                 return false;
@@ -212,32 +205,17 @@ namespace osu.Framework.Audio.Asio
         }
 
         /// <summary>
-        /// 获取带有支持采样率的可用ASIO设备列表。
-        /// 注意：此操作可能较慢，因为需要为每个设备查询支持的采样率。
-        /// </summary>
-        public static IEnumerable<(int Index, string Name, double[] SupportedSampleRates)> AvailableDevicesWithSampleRates
-        {
-            get
-            {
-                foreach (var (index, name) in AvailableDevices)
-                {
-                    double[] supportedRates = GetSupportedSampleRates(index).ToArray();
-                    yield return (index, name, supportedRates);
-                }
-            }
-        }
-
-        /// <summary>
         /// 初始化ASIO设备。
         /// </summary>
         /// <param name="deviceIndex">要初始化的ASIO设备的索引。</param>
         /// <param name="sampleRateToTry">要尝试的采样率。如果为null，则使用默认48000Hz。</param>
+        /// <param name="bufferSize">ASIO缓冲区大小。如果为null，则使用默认128。</param>
         /// <returns>如果初始化成功则为true，否则为false。</returns>
-        public static bool InitializeDevice(int deviceIndex, double? sampleRateToTry = null)
+        public static bool InitializeDevice(int deviceIndex, double? sampleRateToTry = null, int? bufferSize = null)
         {
             try
             {
-                Logger.Log($"InitializeDevice called with deviceIndex={deviceIndex}, sampleRateToTry={sampleRateToTry}", LoggingTarget.Runtime,
+                Logger.Log($"InitializeDevice called with deviceIndex={deviceIndex}, sampleRateToTry={sampleRateToTry}, bufferSize={bufferSize}", LoggingTarget.Runtime,
                     LogLevel.Debug);
 
                 // 获取设备信息
@@ -246,9 +224,15 @@ namespace osu.Framework.Audio.Asio
 
                 Logger.Log($"Initializing ASIO device: {deviceInfo.Name} (Driver: {deviceInfo.Driver})", LoggingTarget.Runtime, LogLevel.Debug);
 
+                // 释放之前的设备，确保完全清理
                 FreeDevice();
 
-                // 删除重试机制，直接尝试初始化
+                // 注意：BassAsio没有直接的方法来设置缓冲区大小
+                // ASIO缓冲区大小主要由驱动程序决定，无法在运行时动态设置
+                // 我们只能记录期望的缓冲区大小用于日志目的
+                Logger.Log($"Attempting to initialize ASIO device with sample rate {sampleRateToTry ?? 48000.0}Hz. Requested buffer size: {bufferSize ?? 128} (note: actual buffer size is determined by driver)", LoggingTarget.Runtime, LogLevel.Debug);
+
+                // 初始化设备
                 if (!tryInitializeDevice(deviceIndex, AsioInitFlags.Thread))
                 {
                     Logger.Log($"Failed to initialize ASIO device {deviceIndex} with Thread flag", LoggingTarget.Runtime, LogLevel.Error);
@@ -257,16 +241,17 @@ namespace osu.Framework.Audio.Asio
 
                 // 尝试采样率：使用传入的值或默认48000
                 double rateToTry = sampleRateToTry ?? 48000.0;
+
                 if (!trySetSampleRate(rateToTry))
                 {
                     Logger.Log($"Failed to set sample rate {rateToTry}Hz for ASIO device {deviceIndex}", LoggingTarget.Runtime, LogLevel.Error);
-                    BassAsio.Free();
+                    FreeDevice();
                     return false;
                 }
 
                 double successfulRate = rateToTry;
 
-                Logger.Log($"ASIO device {deviceIndex} initialized successfully with sample rate {successfulRate}Hz", LoggingTarget.Runtime, LogLevel.Important);
+                Logger.Log($"ASIO device {deviceIndex} initialized successfully with sample rate {successfulRate}Hz, buffer size {(bufferSize ?? 128)}", LoggingTarget.Runtime, LogLevel.Important);
                 return true;
             }
             catch (Exception ex)
@@ -285,7 +270,7 @@ namespace osu.Framework.Audio.Asio
             {
                 BassAsio.Stop();
                 BassAsio.Free();
-                Thread.Sleep(DEVICE_FREE_DELAY_MS);
+                Thread.Sleep(device_free_delay_ms);
             }
             catch (Exception ex)
             {
@@ -302,13 +287,34 @@ namespace osu.Framework.Audio.Asio
             {
                 FreeDevice();
                 globalMixerHandle = 0;
-                Thread.Sleep(FORCE_RESET_DELAY_MS);
+                Thread.Sleep(force_reset_delay_ms);
                 Logger.Log("ASIO Force Reset", LoggingTarget.Runtime, LogLevel.Debug);
             }
             catch (Exception ex)
             {
                 Logger.Log($"Exception during ASIO force reset: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
             }
+        }
+
+        /// <summary>
+        /// 安全地切换ASIO设备，先完全释放当前设备再初始化新设备。
+        /// </summary>
+        /// <param name="newDeviceIndex">新设备的索引</param>
+        /// <param name="sampleRateToTry">要尝试的采样率。如果为null，则使用默认48000Hz。</param>
+        /// <param name="bufferSize">ASIO缓冲区大小。如果为null，则使用默认128。</param>
+        /// <returns>如果切换成功则为true，否则为false。</returns>
+        public static bool SwitchToDevice(int newDeviceIndex, double? sampleRateToTry = null, int? bufferSize = null)
+        {
+            Logger.Log($"Switching ASIO device to index {newDeviceIndex}, sampleRate: {sampleRateToTry}, bufferSize: {bufferSize}", LoggingTarget.Runtime, LogLevel.Important);
+            
+            // 先完全释放当前设备
+            FreeDevice();
+            
+            // 添加额外延迟确保设备完全释放
+            Thread.Sleep(500);
+            
+            // 然后初始化新设备
+            return InitializeDevice(newDeviceIndex, sampleRateToTry, bufferSize);
         }
 
         /// <summary>
@@ -422,61 +428,6 @@ namespace osu.Framework.Audio.Asio
         }
 
         /// <summary>
-        /// 获取指定ASIO设备支持的采样率列表。
-        /// 此方法临时初始化设备以查询支持的速率，然后释放它。
-        /// </summary>
-        /// <param name="deviceIndex">要查询的ASIO设备的索引。</param>
-        /// <returns>支持的采样率列表，如果无法查询设备则为空列表。</returns>
-        public static IEnumerable<double> GetSupportedSampleRates(int deviceIndex)
-        {
-            var supportedRates = new List<double>();
-
-            try
-            {
-                if (!tryGetDeviceInfo(deviceIndex, out AsioDeviceInfo deviceInfo))
-                {
-                    Logger.Log($"Failed to get device info for ASIO device index {deviceIndex}", LoggingTarget.Runtime, LogLevel.Error);
-                    return supportedRates;
-                }
-
-                FreeDevice();
-
-                // 临时初始化设备进行查询
-                if (!tryInitializeDevice(deviceIndex, AsioInitFlags.Thread))
-                {
-                    Logger.Log($"Failed to temporarily initialize ASIO device {deviceIndex} for rate querying", LoggingTarget.Runtime, LogLevel.Error);
-                    return supportedRates;
-                }
-
-                // 只检查默认 48000 是否支持
-                int rate = 48000;
-                try
-                {
-                    if (BassAsio.CheckRate(rate))
-                    {
-                        supportedRates.Add(rate);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Logger.Log($"Exception while checking sample rate {rate}Hz: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
-                }
-
-                FreeDevice();
-
-                Logger.Log($"Found {supportedRates.Count} supported sample rates for ASIO device {deviceInfo.Name}: {string.Join(", ", supportedRates)}", LoggingTarget.Runtime, LogLevel.Important);
-            }
-            catch (Exception ex)
-            {
-                Logger.Log($"Exception querying ASIO device sample rates: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
-
-                FreeDevice();
-            }
-
-            return supportedRates;
-        }
-
-        /// <summary>
         /// 为ASIO设备配置默认输入和输出通道。
         /// </summary>
         /// <returns>如果通道配置成功则为true，否则为false。</returns>
@@ -492,7 +443,7 @@ namespace osu.Framework.Audio.Asio
                 Logger.Log($"ASIO device has {info.Value.Inputs} inputs and {info.Value.Outputs} outputs available", LoggingTarget.Runtime, LogLevel.Debug);
 
                 // 尝试配置至少一个立体声输出通道对
-                bool channelsConfigured = configureOutputChannels(info.Value);
+                bool channelsConfigured = configureStereoChannels(info.Value);
 
                 if (channelsConfigured)
                 {
@@ -514,24 +465,19 @@ namespace osu.Framework.Audio.Asio
             }
         }
 
+        #region 配置双通道输出
+
         /// <summary>
         /// 为ASIO设备配置输出通道。
         /// </summary>
         /// <param name="info">ASIO设备信息。</param>
         /// <returns>如果输出通道成功配置则为true，否则为false。</returns>
-        private static bool configureOutputChannels(AsioInfo info)
+        private static bool configureStereoChannels(AsioInfo info)
         {
-            if (info.Outputs < 2)
-            {
-                Logger.Log($"Insufficient output channels available ({info.Outputs}), cannot configure stereo output", LoggingTarget.Runtime, LogLevel.Important);
-                return false;
-            }
+            if (info.Outputs == 2) return true;
 
             try
             {
-                // 配置第一个立体声输出对（通道0和1）
-                Logger.Log("Configuring stereo output channels (0 and 1) for ASIO device", LoggingTarget.Runtime, LogLevel.Debug);
-
                 // 创建ASIO过程回调
                 AsioProcedure asioCallback = asioProcedure;
 
@@ -579,6 +525,8 @@ namespace osu.Framework.Audio.Asio
             }
         }
 
+        #endregion
+
         /// <summary>
         /// ASIO过程回调，用于通道处理。
         /// </summary>
@@ -613,7 +561,7 @@ namespace osu.Framework.Audio.Asio
                 {
                     // 没有音频数据可用，用静音填充
                     fillBufferWithSilence(buffer, length);
-                    if (++silenceFrames % SILENCE_LOG_INTERVAL == 0)
+                    if (++silenceFrames % silence_log_interval == 0)
                         Logger.Log($"[AudioDebug] ASIO callback silence count={silenceFrames}, globalMixer={mixerHandle}", LoggingTarget.Runtime, LogLevel.Debug);
                 }
                 else if (bytesRead < length)
@@ -640,6 +588,53 @@ namespace osu.Framework.Audio.Asio
                 fillBufferWithSilence(buffer, length);
                 return length;
             }
+        }
+
+        /// <summary>
+        /// 安全枚举ASIO设备，并确保正确处理错误。
+        /// </summary>
+        /// <returns> 一个可枚举的ASIO设备列表。</returns>
+        public static IEnumerable<(int Index, string Name)> EnumerateAsioDevices()
+        {
+            if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
+                return Enumerable.Empty<(int, string)>();
+
+            try
+            {
+                return AvailableDevices;
+            }
+            catch (DllNotFoundException)
+            {
+                // ASIO native library not available - this is expected in some test environments
+                return Enumerable.Empty<(int, string)>();
+            }
+            catch (EntryPointNotFoundException)
+            {
+                // ASIO native library not available - this is expected in some test environments
+                return Enumerable.Empty<(int, string)>();
+            }
+            catch (Exception ex)
+            {
+                // Log other unexpected exceptions but don't fail
+                Logger.Log($"Unexpected error enumerating ASIO devices: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
+                return Enumerable.Empty<(int, string)>();
+            }
+        }
+
+        /// <summary>
+        /// Finds the ASIO device index for a given device name.
+        /// </summary>
+        /// <param name="deviceName">The name of the ASIO device to find.</param>
+        /// <returns>The device index if found, null otherwise.</returns>
+        public static int? FindAsioDeviceIndex(string deviceName)
+        {
+            foreach (var device in EnumerateAsioDevices())
+            {
+                if (device.Name == deviceName)
+                    return device.Index;
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -683,3 +678,79 @@ namespace osu.Framework.Audio.Asio
         }
     }
 }
+
+// #region 获取受支持的采样率
+
+// /// <summary>
+// /// 获取带有支持采样率的可用ASIO设备列表。
+// /// 注意：此操作可能较慢，因为需要为每个设备查询支持的采样率。
+// /// </summary>
+// public static IEnumerable<(int Index, string Name, double[] SupportedSampleRates)> AvailableDevicesWithSampleRates
+// {
+//     get
+//     {
+//         foreach (var (index, name) in AvailableDevices)
+//         {
+//             double[] supportedRates = GetSupportedSampleRates(index).ToArray();
+//             yield return (index, name, supportedRates);
+//         }
+//     }
+// }
+
+        // /// <summary>
+        // /// 获取指定ASIO设备支持的采样率列表。
+        // /// 此方法临时初始化设备以查询支持的速率，然后释放它。
+        // /// </summary>
+        // /// <param name="deviceIndex">要查询的ASIO设备的索引。</param>
+        // /// <returns>支持的采样率列表，如果无法查询设备则为空列表。</returns>
+        // public static IEnumerable<double> GetSupportedSampleRates(int deviceIndex)
+        // {
+        //     var supportedRates = new List<double>();
+        //
+        //     try
+        //     {
+        //         if (!tryGetDeviceInfo(deviceIndex, out AsioDeviceInfo deviceInfo))
+        //         {
+        //             Logger.Log($"Failed to get device info for ASIO device index {deviceIndex}", LoggingTarget.Runtime, LogLevel.Error);
+        //             return supportedRates;
+        //         }
+        //
+        //         FreeDevice();
+        //
+        //         // 临时初始化设备进行查询
+        //         if (!tryInitializeDevice(deviceIndex, AsioInitFlags.Thread))
+        //         {
+        //             Logger.Log($"Failed to temporarily initialize ASIO device {deviceIndex} for rate querying", LoggingTarget.Runtime, LogLevel.Error);
+        //             return supportedRates;
+        //         }
+        //
+        //         // 只检查默认 48000 是否支持
+        //         int rate = 48000;
+        //
+        //         try
+        //         {
+        //             if (BassAsio.CheckRate(rate))
+        //             {
+        //                 supportedRates.Add(rate);
+        //             }
+        //         }
+        //         catch (Exception ex)
+        //         {
+        //             Logger.Log($"Exception while checking sample rate {rate}Hz: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
+        //         }
+        //
+        //         FreeDevice();
+        //
+        //         Logger.Log($"Found {supportedRates.Count} supported sample rates for ASIO device {deviceInfo.Name}: {string.Join(", ", supportedRates)}", LoggingTarget.Runtime, LogLevel.Important);
+        //     }
+        //     catch (Exception ex)
+        //     {
+        //         Logger.Log($"Exception querying ASIO device sample rates: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
+        //
+        //         FreeDevice();
+        //     }
+        //
+        //     return supportedRates;
+        // }
+
+// #endregion

@@ -5,7 +5,7 @@ using System;
 using osu.Framework.Logging;
 using osu.Framework.Threading;
 
-namespace osu.Framework.Audio
+namespace osu.Framework.Audio.EzLatency
 {
     /// <summary>
     /// EzPlaybackModule 负责处理播放事件的触发和时间戳记录。
@@ -46,8 +46,8 @@ namespace osu.Framework.Audio
                 if (EzInputModule.InputTime > 0)
                 {
                     // build local low-level structs for richer diagnostics (do not mutate AudioThread fields)
-                    osu.Framework.Threading.EzLatencyInputData inputData = default;
-                    osu.Framework.Threading.EzLatencyHardwareData hardwareData = default;
+                    EzLatencyInputData inputData = default;
+                    EzLatencyHardwareData hardwareData = default;
 
                     try
                     {

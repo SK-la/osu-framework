@@ -2,9 +2,10 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Diagnostics;
 using osu.Framework.Logging;
 
-namespace osu.Framework.Audio
+namespace osu.Framework.Audio.EzLatency
 {
     /// <summary>
     /// EzDriverModule 负责音频驱动的设置和管理。
@@ -17,7 +18,7 @@ namespace osu.Framework.Audio
         /// </summary>
         public bool Enabled { get; set; } = false;
 
-        private readonly System.Diagnostics.Stopwatch stopwatch = new System.Diagnostics.Stopwatch();
+        private readonly Stopwatch stopwatch = new Stopwatch();
 
         // 存储驱动时间
         internal double DriverTime;

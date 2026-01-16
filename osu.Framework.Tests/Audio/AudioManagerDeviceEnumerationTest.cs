@@ -72,17 +72,17 @@ namespace osu.Framework.Tests.Audio
 
                         try
                         {
-                            var rates = audioManager.GetAsioDeviceSupportedSampleRates(deviceName);
-                            TestContext.WriteLine($"  Supported rates: {(rates != null ? string.Join(", ", rates) : "null")}");
-
-                            if (rates != null && rates.Length > 0)
-                            {
-                                TestContext.WriteLine($"  Rate count: {rates.Length}");
-                            }
-                            else
-                            {
-                                TestContext.WriteLine("  No supported rates found!");
-                            }
+                            // var rates = audioManager.GetAsioDeviceSupportedSampleRates(deviceName);
+                            // TestContext.WriteLine($"  Supported rates: {(rates != null ? string.Join(", ", rates) : "null")}");
+                            //
+                            // if (rates != null && rates.Length > 0)
+                            // {
+                            //     TestContext.WriteLine($"  Rate count: {rates.Length}");
+                            // }
+                            // else
+                            // {
+                            //     TestContext.WriteLine("  No supported rates found!");
+                            // }
                         }
                         catch (System.Exception ex)
                         {

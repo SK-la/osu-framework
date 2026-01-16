@@ -5,6 +5,7 @@ using System.Collections.Immutable;
 using System.Linq;
 using ManagedBass;
 using osu.Framework.Audio;
+using osu.Framework.Audio.EzLatency;
 using osu.Framework.IO.Stores;
 using osu.Framework.Threading;
 
@@ -25,14 +26,14 @@ namespace osu.Framework.Tests.Audio
 
         private volatile bool simulateLoss;
 
-        protected override bool InitBass(int device, AudioOutputMode outputMode, int? asioDeviceIndex)
+        protected override bool InitBass(int device, AudioOutputMode outputMode)
         {
             try
             {
                 if (simulateLoss)
-                    return device == Bass.NoSoundDevice && base.InitBass(device, outputMode, asioDeviceIndex);
+                    return device == Bass.NoSoundDevice && base.InitBass(device, outputMode);
 
-                return base.InitBass(device, outputMode, asioDeviceIndex);
+                return base.InitBass(device, outputMode);
             }
             finally
             {

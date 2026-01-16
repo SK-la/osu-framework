@@ -1,8 +1,7 @@
+using System;
+
 namespace osu.Framework.Audio.EzLatency
 {
-    #nullable disable
-    using System;
-
     public interface IEzLatencyLogger : IDisposable
     {
         void Log(EzLatencyRecord record);

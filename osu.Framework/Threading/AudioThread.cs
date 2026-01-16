@@ -1,4 +1,4 @@
-﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
 using osu.Framework.Statistics;
@@ -16,6 +16,7 @@ using ManagedBass.Mix;
 using ManagedBass.Wasapi;
 using osu.Framework.Audio;
 using osu.Framework.Audio.Asio;
+using osu.Framework.Audio.EzLatency;
 using osu.Framework.Bindables;
 using osu.Framework.Development;
 using osu.Framework.Logging;
@@ -23,28 +24,6 @@ using osu.Framework.Platform.Linux.Native;
 
 namespace osu.Framework.Threading
 {
-    /// <summary>
-    /// EzOsuLatency 输入数据结构体
-    /// </summary>
-    public struct EzLatencyInputData
-    {
-        public double InputTime;
-        public object KeyValue;
-        public double JudgeTime;
-        public double PlaybackTime;
-    }
-
-    /// <summary>
-    /// EzOsuLatency 硬件数据结构体
-    /// </summary>
-    public struct EzLatencyHardwareData
-    {
-        public double DriverTime;
-        public double OutputHardwareTime;
-        public double InputHardwareTime;
-        public double LatencyDifference;
-    }
-
     public class AudioThread : GameThread
     {
         private static int wasapiNativeUnavailableLogged;
@@ -241,7 +220,7 @@ namespace osu.Framework.Threading
         /// </summary>
         private readonly Bindable<int?> globalMixerHandle = new Bindable<int?>();
 
-        internal bool InitDevice(int deviceId, AudioThreadOutputMode outputMode, int? asioDeviceIndex = null, double? preferredSampleRate = null)
+        internal bool InitDevice(int deviceId, AudioOutputMode outputMode, double preferredSampleRate)
         {
             Debug.Assert(ThreadSafety.IsAudioThread);
             Trace.Assert(deviceId != -1); // The real device ID should always be used, as the -1 device has special cases which are hard to work with.
@@ -253,11 +232,11 @@ namespace osu.Framework.Threading
             freeWasapi();
 
             // 对于ASIO模式，在初始化前添加额外延迟以确保设备完全释放
-            if (outputMode == AudioThreadOutputMode.Asio)
+            if (outputMode == AudioOutputMode.Asio)
             {
                 Logger.Log("检测到ASIO模式，在设备初始化前添加额外延迟", name: "audio", level: LogLevel.Debug);
                 // 增加延迟以确保设备完全释放
-                Thread.Sleep(500);
+                Thread.Sleep(200);
             }
 
             // Try to initialise the device, or request a re-initialise.
@@ -272,10 +251,10 @@ namespace osu.Framework.Threading
 
             switch (outputMode)
             {
-                case AudioThreadOutputMode.Default:
+                case AudioOutputMode.Default:
                     break;
 
-                case AudioThreadOutputMode.WasapiShared:
+                case AudioOutputMode.WasapiShared:
                     if (!attemptWasapiInitialisation(deviceId, exclusive: false))
                     {
                         Logger.Log($"BassWasapi initialisation failed (shared mode). BASS error: {Bass.LastError}", name: "audio", level: LogLevel.Error);
@@ -284,7 +263,7 @@ namespace osu.Framework.Threading
 
                     break;
 
-                case AudioThreadOutputMode.WasapiExclusive:
+                case AudioOutputMode.WasapiExclusive:
                     if (!attemptWasapiInitialisation(deviceId, exclusive: true))
                     {
                         Logger.Log($"BassWasapi initialisation failed (exclusive mode). BASS error: {Bass.LastError}", name: "audio", level: LogLevel.Error);
@@ -293,14 +272,8 @@ namespace osu.Framework.Threading
 
                     break;
 
-                case AudioThreadOutputMode.Asio:
-                    if (asioDeviceIndex == null)
-                    {
-                        Logger.Log("选择了ASIO输出模式但未提供ASIO设备索引。", name: "audio", level: LogLevel.Error);
-                        return false;
-                    }
-
-                    if (!initAsio(asioDeviceIndex.Value, preferredSampleRate))
+                case AudioOutputMode.Asio:
+                    if (!initAsio(deviceId, preferredSampleRate))
                         return false;
 
                     break;
@@ -506,15 +479,9 @@ namespace osu.Framework.Threading
                     {
                         // If the user selected a specific non-default device, do not fall back to system default.
                         // Fallback would likely be busy (e.g. browser playing on default), and would mask the real issue.
-                        if (bassDeviceId != Bass.DefaultDevice)
-                        {
-                            Logger.Log($"Could not map BASS device {bassDeviceId} (driver '{driver}') to a WASAPI output device; refusing to fall back to default (-1).", name: "audio",
-                                level: LogLevel.Verbose);
-                            return false;
-                        }
-
-                        Logger.Log($"Could not map BASS default device (driver '{driver}') to a WASAPI output device; falling back to default WASAPI device (-1).", name: "audio",
+                        Logger.Log($"Could not map BASS device {bassDeviceId} (driver '{driver}') to a WASAPI output device; refusing to fall back to default (-1).", name: "audio",
                             level: LogLevel.Verbose);
+                        return false;
                     }
                 }
                 else
@@ -649,20 +616,19 @@ namespace osu.Framework.Threading
             Logger.Log(message, name: "audio", level: LogLevel.Error);
         }
 
-        private bool initAsio(int asioDeviceIndex, double? preferredSampleRate = null)
+        private bool initAsio(int asioDeviceIndex, double preferredSampleRate = 48000)
         {
-            Logger.Log($"Initializing ASIO device {asioDeviceIndex} with preferred sample rate {preferredSampleRate}Hz", name: "audio", level: LogLevel.Important);
-
             freeAsio();
 
-            // 使用来自AudioManager的统一采样率
+            // 使用来自AudioManager的统一采样率和缓冲区大小
             if (Manager != null)
             {
-                preferredSampleRate = Manager.SampleRate.Value;
+                preferredSampleRate = Manager.SAMPLE_RATE.Value;
+                int bufferSize = Manager.ASIO_BUFFER_SIZE.Value;
 
-                if (!AsioDeviceManager.InitializeDevice(asioDeviceIndex, preferredSampleRate))
+                if (!AsioDeviceManager.InitializeDevice(asioDeviceIndex, preferredSampleRate, bufferSize))
                 {
-                    Logger.Log($"AsioDeviceManager.InitializeDevice({asioDeviceIndex}, {preferredSampleRate}) 失败", name: "audio", level: LogLevel.Error);
+                    Logger.Log($"AsioDeviceManager.InitializeDevice({asioDeviceIndex}, {preferredSampleRate}, {bufferSize}) 失败", name: "audio", level: LogLevel.Error);
                     // 不要自动释放BASS设备 - 让AudioManager处理回退决策
                     // 这可以防止过度激进的设备切换导致设备可用性降低
                     return false;
@@ -844,15 +810,15 @@ namespace osu.Framework.Threading
         /// </summary>
         /// <param name="outputMode">输出模式</param>
         /// <returns>缓冲区延迟（毫秒），失败返回-1</returns>
-        internal double GetDriverBufferLatency(AudioThreadOutputMode outputMode)
+        internal double GetDriverBufferLatency(AudioOutputMode outputMode)
         {
             switch (outputMode)
             {
-                case AudioThreadOutputMode.Asio:
+                case AudioOutputMode.Asio:
                     return GetAsioOutputLatency();
 
-                case AudioThreadOutputMode.WasapiExclusive:
-                case AudioThreadOutputMode.WasapiShared:
+                case AudioOutputMode.WasapiExclusive:
+                case AudioOutputMode.WasapiShared:
                     return GetWasapiStreamLatency();
 
                 default:
@@ -869,14 +835,14 @@ namespace osu.Framework.Threading
         /// <param name="uncontrollableLatency">不可控延迟</param>
         internal void LogLatencyData(double inputLatency, double playbackLatency, double totalLatency, double uncontrollableLatency)
         {
-            const string driverType = "Unknown";
+            const string driver_type = "Unknown";
             int sampleRate = 44100;
-            const int bufferSize = 256;
+            const int buffer_size = 128;
 
             // 获取当前驱动信息
             if (Manager != null)
             {
-                sampleRate = Manager.SampleRate.Value;
+                sampleRate = Manager.SAMPLE_RATE.Value;
                 // TODO: 获取bufferSize
             }
 
@@ -885,22 +851,14 @@ namespace osu.Framework.Threading
 
             LogModule.LogLatency(
                 LatencyTestModule.RecordTimestamp(),
-                driverType,
+                driver_type,
                 sampleRate,
-                bufferSize,
+                buffer_size,
                 inputLatency,
                 playbackLatency,
                 totalLatency,
                 uncontrollableLatency
             );
-        }
-
-        internal enum AudioThreadOutputMode
-        {
-            Default,
-            WasapiShared,
-            WasapiExclusive,
-            Asio,
         }
 
         #endregion
