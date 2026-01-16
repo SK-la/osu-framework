@@ -48,6 +48,24 @@ namespace osu.Framework.Threading
 
             // 初始化EzLatency模块
             LatencyAnalyzer = new EzLatencyAnalyzer();
+
+            // Forward any analyzer records from this audio thread into the global EzLatencyService
+            try
+            {
+                LatencyAnalyzer.OnNewRecord += r =>
+                {
+                    try
+                    {
+                        EzLatencyService.Instance.PushRecord(r);
+                    }
+                    catch
+                    {
+                    }
+                };
+            }
+            catch
+            {
+            }
         }
 
         public override bool IsCurrent => ThreadSafety.IsAudioThread;

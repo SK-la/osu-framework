@@ -18,10 +18,11 @@ namespace osu.Framework.Audio.EzLatency
     public struct EzLatencyInputData
     {
         public double InputTime;
-        public object? KeyValue;
+        public object KeyValue;
         public double JudgeTime;
         public double PlaybackTime;
-        public bool IsValid => InputTime > 0 && JudgeTime > 0 && PlaybackTime > 0;
+        // Consider input+playback or input+judge as valid for best-effort measurements.
+        public bool IsValid => InputTime > 0 && (PlaybackTime > 0 || JudgeTime > 0);
     }
 
     public struct EzLatencyHardwareData
@@ -67,7 +68,7 @@ namespace osu.Framework.Audio.EzLatency
     {
         private readonly Stopwatch stopwatch;
         public bool Enabled { get; set; } = false;
-        public event Action<EzLatencyRecord>? OnNewRecord;
+        public event Action<EzLatencyRecord> OnNewRecord;
 
         private EzLatencyInputData currentInputData;
         private EzLatencyHardwareData currentHardwareData;
@@ -79,7 +80,7 @@ namespace osu.Framework.Audio.EzLatency
             stopwatch = Stopwatch.StartNew();
         }
 
-        public void RecordInputData(double inputTime, object? keyValue = null)
+        public void RecordInputData(double inputTime, object keyValue = null)
         {
             if (!Enabled) return;
             if (currentInputData.InputTime > 0)
@@ -123,12 +124,13 @@ namespace osu.Framework.Audio.EzLatency
 
         private void tryGenerateCompleteRecord()
         {
-            if (!currentInputData.IsValid || !currentHardwareData.IsValid)
+            if (!currentInputData.IsValid)
             {
                 checkTimeout();
                 return;
             }
 
+            // If we have hardware data, emit a full record. Otherwise emit a best-effort record without hw.
             var record = new EzLatencyRecord
             {
                 Timestamp = DateTimeOffset.Now,
@@ -140,21 +142,24 @@ namespace osu.Framework.Audio.EzLatency
                 InputHardwareTime = currentHardwareData.InputHardwareTime,
                 LatencyDifference = currentHardwareData.LatencyDifference,
                 MeasuredMs = currentInputData.PlaybackTime - currentInputData.InputTime,
-                Note = "complete-latency-measurement",
+                Note = currentHardwareData.IsValid ? "complete-latency-measurement" : "best-effort-no-hw",
                 InputData = currentInputData,
                 HardwareData = currentHardwareData
             };
 
             try
             {
-                OnNewRecord?.Invoke(record);
-                EzLatencyService.Instance.PushRecord(record);
-                Logger.Log(string.Format("EzLatency 完整记录已生成: Input→Playback={0:F2}ms", record.PlaybackTime - record.InputTime), LoggingTarget.Runtime, LogLevel.Debug);
+                    OnNewRecord?.Invoke(record);
+                    EzLatencyService.Instance.PushRecord(record);
+                    if (currentHardwareData.IsValid)
+                        Logger.Log($"EzLatency 完整记录已生成: Input→Playback={record.PlaybackTime - record.InputTime:F2}ms", LoggingTarget.Runtime, LogLevel.Debug);
+                    else
+                        Logger.Log($"EzLatency 最佳尝试记录（无硬件时间戳）: Input→Playback={record.PlaybackTime - record.InputTime:F2}ms", LoggingTarget.Runtime, LogLevel.Debug);
             }
-            catch (Exception ex)
-            {
-                Logger.Log(string.Format("延迟记录事件处理出错: {0}", ex.Message), LoggingTarget.Runtime, LogLevel.Error);
-            }
+                catch (Exception ex)
+                {
+                    Logger.Log($"EzLatencyAnalyzer: tryGenerateCompleteRecord failed: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
+                }
 
             ClearCurrentData();
         }
@@ -168,7 +173,7 @@ namespace osu.Framework.Audio.EzLatency
                 double elapsed = stopwatch.Elapsed.TotalMilliseconds - recordStartTime;
                 if (elapsed > timeout_ms)
                 {
-                    Logger.Log(string.Format("EzLatency 数据收集超时 ({0:F0}ms)，清除旧数据", elapsed), LoggingTarget.Runtime, LogLevel.Debug);
+                    Logger.Log($"EzLatency 数据收集超时 ({elapsed:F0}ms)，清除旧数据", LoggingTarget.Runtime, LogLevel.Debug);
                     ClearCurrentData();
                 }
             }
@@ -192,7 +197,14 @@ namespace osu.Framework.Audio.EzLatency
 
         public void PushRecord(EzLatencyRecord record)
         {
-            try { OnMeasurement?.Invoke(record); } catch (Exception ex) { Logger.Log($"EzLatencyService.PushRecord 异常: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error); }
+            try
+            {
+                OnMeasurement?.Invoke(record);
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"EzLatencyService.PushRecord 异常: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
+            }
         }
 
         public event Action<EzLatencyRecord> OnMeasurement;
@@ -210,29 +222,78 @@ namespace osu.Framework.Audio.EzLatency
     public class EzLoggerAdapter : IEzLatencyLogger
     {
         private readonly Scheduler scheduler;
-        private readonly string filePath;
         private StreamWriter fileWriter;
         public event Action<EzLatencyRecord> OnRecord;
 
         public EzLoggerAdapter(Scheduler scheduler = null, string filePath = null)
         {
             this.scheduler = scheduler;
-            this.filePath = filePath;
-            if (!string.IsNullOrEmpty(filePath))
+
+            this.scheduler = scheduler as Scheduler;
             {
-                try { fileWriter = new StreamWriter(File.Open(filePath, FileMode.Append, FileAccess.Write, FileShare.Read)) { AutoFlush = true }; }
-                catch (Exception ex) { Logger.Log($"EzLoggerAdapter: failed to open file {filePath}: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error); }
+                try
+                {
+                    fileWriter = new StreamWriter(File.Open(filePath, FileMode.Append, FileAccess.Write, FileShare.Read)) { AutoFlush = true };
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log($"EzLoggerAdapter: failed to open file {filePath}: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
+                    fileWriter = null;
+                }
             }
         }
 
         public void Log(EzLatencyRecord record)
         {
-            try { if (scheduler != null) scheduler.Add(() => OnRecord?.Invoke(record)); else OnRecord?.Invoke(record); } catch { }
-            try { string line = $"[{record.Timestamp:O}] {record.MeasuredMs} ms - {record.Note}"; fileWriter?.WriteLine(line); } catch { }
+            try
+            {
+                if (scheduler != null)
+                    scheduler.Add(() => OnRecord?.Invoke(record));
+                else
+                    OnRecord?.Invoke(record);
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"EzLoggerAdapter: OnRecord handler threw: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
+            }
+
+            try
+            {
+                if (fileWriter != null)
+                {
+                    string line = $"[{record.Timestamp:O}] {record.MeasuredMs} ms - {record.Note}";
+                    fileWriter.WriteLine(line);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"EzLoggerAdapter: failed to write to file: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
+            }
         }
 
-        public void Flush() { try { fileWriter?.Flush(); } catch { } }
-        public void Dispose() { try { fileWriter?.Dispose(); } catch { } }
+        public void Flush()
+        {
+            try
+            {
+                fileWriter?.Flush();
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"EzLoggerAdapter: flush failed: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
+            }
+        }
+
+        public void Dispose()
+        {
+            try
+            {
+                fileWriter?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"EzLoggerAdapter: dispose failed: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
+            }
+        }
     }
 
     // --- Interfaces & basic tracker ------------------------------------------
@@ -303,7 +364,8 @@ namespace osu.Framework.Audio.EzLatency
 
         public void AddRecord(EzLatencyRecord record)
         {
-            if (!record.IsComplete)
+            // Accept records if input data is valid (best-effort), even if hardware data isn't available.
+            if (!record.InputData.IsValid)
                 return;
 
             lock (lockObject)
@@ -327,10 +389,10 @@ namespace osu.Framework.Audio.EzLatency
                 if (records.Count == 0)
                     return new EzLatencyStatistics { RecordCount = 0 };
 
-                var inputToJudge = records.Select(r => (double)(r.JudgeTime - r.InputTime)).ToList();
-                var inputToPlayback = records.Select(r => (double)(r.PlaybackTime - r.InputTime)).ToList();
-                var playbackToJudge = records.Select(r => (double)(r.JudgeTime - r.PlaybackTime)).ToList();
-                var hardwareLatency = records.Select(r => (double)r.OutputHardwareTime).Where(h => h > 0).ToList();
+                var inputToJudge = records.Select(r => r.JudgeTime - r.InputTime).ToList();
+                var inputToPlayback = records.Select(r => r.PlaybackTime - r.InputTime).ToList();
+                var playbackToJudge = records.Select(r => r.JudgeTime - r.PlaybackTime).ToList();
+                var hardwareLatency = records.Select(r => r.OutputHardwareTime).Where(h => h > 0).ToList();
 
                 return new EzLatencyStatistics
                 {

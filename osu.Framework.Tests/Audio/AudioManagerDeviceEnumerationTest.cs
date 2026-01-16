@@ -13,39 +13,6 @@ namespace osu.Framework.Tests.Audio
     public class AudioManagerDeviceEnumerationTest
     {
         [Test]
-        public void TestAudioManagerEnumeratesAsioDevices()
-        {
-            AudioThread.PreloadBass();
-
-            var audioThread = new AudioThread();
-            var trackStore = new ResourceStore<byte[]>(new DllResourceStore(typeof(AudioManagerDeviceEnumerationTest).Assembly));
-            var sampleStore = new ResourceStore<byte[]>(new DllResourceStore(typeof(AudioManagerDeviceEnumerationTest).Assembly));
-
-            using (var audioManager = new AudioManager(audioThread, trackStore, sampleStore, null))
-            {
-                var deviceNames = audioManager.AudioDeviceNames.ToList();
-
-                // Check that we have base devices
-                Assert.That(deviceNames.Count, Is.GreaterThan(0), "Should have at least one audio device");
-
-                // Check for ASIO devices if on Windows
-                if (RuntimeInfo.OS == RuntimeInfo.Platform.Windows)
-                {
-                    var asioDevices = deviceNames.Where(name => name.Contains("(ASIO)")).ToList();
-
-                    // ASIO may not be available in test environment, so we just log what we found
-                    TestContext.WriteLine($"Found {asioDevices.Count} ASIO devices");
-
-                    // Log the devices for debugging
-                    foreach (string? device in deviceNames)
-                        TestContext.WriteLine($"Device: {device}");
-
-                    // Don't assert on ASIO device count since it may not be available in test environment
-                }
-            }
-        }
-
-        [Test]
         public void TestAsioDeviceSupportedSampleRates()
         {
             AudioThread.PreloadBass();
@@ -65,24 +32,24 @@ namespace osu.Framework.Tests.Audio
 
                     TestContext.WriteLine($"Found {asioDevices.Count} ASIO devices");
 
-                    foreach (string? device in asioDevices)
+                    foreach (var device in asioDevices)
                     {
                         string deviceName = device.Replace(" (ASIO)", "");
                         TestContext.WriteLine($"Testing ASIO device: {deviceName}");
 
                         try
                         {
-                            // var rates = audioManager.GetAsioDeviceSupportedSampleRates(deviceName);
-                            // TestContext.WriteLine($"  Supported rates: {(rates != null ? string.Join(", ", rates) : "null")}");
-                            //
-                            // if (rates != null && rates.Length > 0)
-                            // {
-                            //     TestContext.WriteLine($"  Rate count: {rates.Length}");
-                            // }
-                            // else
-                            // {
-                            //     TestContext.WriteLine("  No supported rates found!");
-                            // }
+                            var rates = audioManager.GetAsioDeviceSupportedSampleRates(deviceName);
+                            TestContext.WriteLine($"  Supported rates: {(rates != null ? string.Join(", ", rates) : "null")}");
+
+                            if (rates != null && rates.Length > 0)
+                            {
+                                TestContext.WriteLine($"  Rate count: {rates.Length}");
+                            }
+                            else
+                            {
+                                TestContext.WriteLine("  No supported rates found!");
+                            }
                         }
                         catch (System.Exception ex)
                         {

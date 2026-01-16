@@ -30,31 +30,25 @@ namespace osu.Framework.Audio.EzLatency
 
         private readonly EzLatencyAnalyzer analyzer;
         private readonly EzLatencyCollector collector = new EzLatencyCollector();
+        private readonly Action<EzLatencyRecord> serviceHandler;
 
         public EzLatencyManager()
         {
             analyzer = new EzLatencyAnalyzer();
-
             // 将启用状态与分析器同步
             Enabled.BindValueChanged(v =>
             {
                 analyzer.Enabled = v.NewValue;
             }, true);
 
-            // 将分析器的记录事件转发给外部
-            analyzer.OnNewRecord += record =>
+            // 统一通过 EzLatencyService 的事件通道接收所有记录（包括来自其它分析器/线程的）
+            serviceHandler = record =>
             {
-                // add to collector for statistics
-                try
-                {
-                    collector.AddRecord(record);
-                }
-                catch
-                {
-                }
-
+                collector.AddRecord(record);
                 OnNewRecord?.Invoke(record);
             };
+
+            EzLatencyService.Instance.OnMeasurement += serviceHandler;
         }
 
         /// <summary>
@@ -127,6 +121,21 @@ namespace osu.Framework.Audio.EzLatency
         public void ClearStatistics() => collector.Clear();
 
         /// <summary>
+        /// Create a simple file logger for latency records. Convenience factory to make EzLoggerAdapter discoverable.
+        /// </summary>
+        public IEzLatencyLogger CreateLogger(string filePath = null) => new EzLoggerAdapter(null, filePath);
+
+        /// <summary>
+        /// Create a basic in-process tracker which emits measurements into the global pipeline.
+        /// </summary>
+        public IEzLatencyTracker CreateBasicTracker()
+        {
+            var t = new BasicEzLatencyTracker();
+            t.OnMeasurement += r => EzLatencyService.Instance.PushRecord(r);
+            return t;
+        }
+
+        /// <summary>
         /// 已收集的完整记录数量
         /// </summary>
         public int RecordCount => collector.Count;
@@ -155,7 +164,7 @@ namespace osu.Framework.Audio.EzLatency
         public void Dispose()
         {
             Enabled.UnbindAll();
-            analyzer.OnNewRecord -= OnNewRecord;
+            EzLatencyService.Instance.OnMeasurement -= serviceHandler;
         }
     }
 }
