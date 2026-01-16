@@ -25,6 +25,15 @@ namespace osu.Framework.Audio.Sample
             ObjectDisposedException.ThrowIf(IsDisposed, this);
 
             Played = true;
+            try
+            {
+                // Best-effort: notify global latency manager that a sample playback was requested.
+                osu.Framework.Audio.EzLatency.EzLatencyManager.GLOBAL.RecordPlaybackEvent();
+            }
+            catch
+            {
+            }
+
             OnPlay?.Invoke(this);
         }
 

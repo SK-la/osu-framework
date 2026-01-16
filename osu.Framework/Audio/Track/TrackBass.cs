@@ -10,6 +10,7 @@ using ManagedBass.Fx;
 using osu.Framework.IO;
 using System.Threading.Tasks;
 using osu.Framework.Audio.Callbacks;
+using osu.Framework.Audio.EzLatency;
 using osu.Framework.Audio.Mixing;
 using osu.Framework.Audio.Mixing.Bass;
 using osu.Framework.Extensions;
@@ -267,7 +268,19 @@ namespace osu.Framework.Audio.Track
         public override Task StartAsync() => EnqueueAction(() =>
         {
             if (startInternal())
+            {
                 isRunning = isPlayed = true;
+
+                // Record playback event for latency measurement (best-effort, non-blocking)
+                try
+                {
+                    EzLatencyManager.GLOBAL.RecordPlaybackEvent();
+                }
+                catch
+                {
+                    // swallow to avoid impacting playback
+                }
+            }
         });
 
         private bool startInternal()

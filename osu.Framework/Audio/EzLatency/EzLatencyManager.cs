@@ -12,11 +12,24 @@ namespace osu.Framework.Audio.EzLatency
     public class EzLatencyManager
     {
         /// <summary>
+        /// Pluggable hardware timestamp provider. Defaults to a null provider which indicates no hardware timestamps available.
+        /// Override this with a platform-specific provider if desired.
+        /// </summary>
+        public static IHwTimestampProvider HwProvider = new NullHwTimestampProvider();
+
+        /// <summary>
+        /// Global lightweight manager instance for best-effort framework instrumentation.
+        /// Use this to record input/playback events from low-level framework code without resolving instances.
+        /// </summary>
+        public static readonly EzLatencyManager GLOBAL = new EzLatencyManager();
+
+        /// <summary>
         /// 延迟测试启用状态的绑定值，可与程序设置关联
         /// </summary>
         public readonly BindableBool Enabled = new BindableBool(false);
 
         private readonly EzLatencyAnalyzer analyzer;
+        private readonly EzLatencyCollector collector = new EzLatencyCollector();
 
         public EzLatencyManager()
         {
@@ -29,7 +42,19 @@ namespace osu.Framework.Audio.EzLatency
             }, true);
 
             // 将分析器的记录事件转发给外部
-            analyzer.OnNewRecord += record => OnNewRecord?.Invoke(record);
+            analyzer.OnNewRecord += record =>
+            {
+                // add to collector for statistics
+                try
+                {
+                    collector.AddRecord(record);
+                }
+                catch
+                {
+                }
+
+                OnNewRecord?.Invoke(record);
+            };
         }
 
         /// <summary>
@@ -90,6 +115,23 @@ namespace osu.Framework.Audio.EzLatency
         /// </summary>
         /// <returns>当前时间戳（毫秒）</returns>
         public double GetCurrentTimestamp() => analyzer.GetCurrentTimestamp();
+
+        /// <summary>
+        /// 获取聚合的延迟统计数据（best-effort）。
+        /// </summary>
+        public EzLatencyStatistics GetStatistics() => collector.GetStatistics();
+
+        /// <summary>
+        /// 清空统计收集器
+        /// </summary>
+        public void ClearStatistics() => collector.Clear();
+
+        /// <summary>
+        /// 已收集的完整记录数量
+        /// </summary>
+        public int RecordCount => collector.Count;
+
+        // (Statistics, collector, and hardware provider types are defined in EzLatencyCore.cs)
 
         /// <summary>
         /// 在gameplay开始时启用延迟测试
