@@ -230,7 +230,6 @@ namespace osu.Framework.Audio.Asio
                 // 注意：BassAsio没有直接的方法来设置缓冲区大小
                 // ASIO缓冲区大小主要由驱动程序决定，无法在运行时动态设置
                 // 我们只能记录期望的缓冲区大小用于日志目的
-                Logger.Log($"Attempting to initialize ASIO device with sample rate {sampleRateToTry ?? 48000.0}Hz. Requested buffer size: {bufferSize ?? 128} (note: actual buffer size is determined by driver)", LoggingTarget.Runtime, LogLevel.Debug);
 
                 // 初始化设备
                 if (!tryInitializeDevice(deviceIndex, AsioInitFlags.Thread))
@@ -251,7 +250,7 @@ namespace osu.Framework.Audio.Asio
 
                 double successfulRate = rateToTry;
 
-                Logger.Log($"ASIO device {deviceIndex} initialized successfully with sample rate {successfulRate}Hz, buffer size {(bufferSize ?? 128)}", LoggingTarget.Runtime, LogLevel.Important);
+                Logger.Log($"ASIO device {deviceIndex} initialized successfully with sample rate {successfulRate}Hz", LoggingTarget.Runtime, LogLevel.Important);
                 return true;
             }
             catch (Exception ex)
@@ -268,8 +267,16 @@ namespace osu.Framework.Audio.Asio
         {
             try
             {
+                // 先停止音频处理
                 BassAsio.Stop();
+                
+                // 等待一小段时间确保停止完成
+                Thread.Sleep(100);
+                
+                // 然后释放设备
                 BassAsio.Free();
+                
+                // 再等待一段时间确保设备完全释放
                 Thread.Sleep(device_free_delay_ms);
             }
             catch (Exception ex)
@@ -285,14 +292,40 @@ namespace osu.Framework.Audio.Asio
         {
             try
             {
-                FreeDevice();
-                globalMixerHandle = 0;
+                // 先停止设备
+                BassAsio.Stop();
+                
+                // 短暂延迟
+                Thread.Sleep(50);
+                
+                // 释放设备
+                BassAsio.Free();
+                
+                // 更长的延迟确保完全重置
                 Thread.Sleep(force_reset_delay_ms);
+                
+                globalMixerHandle = 0;
                 Logger.Log("ASIO Force Reset", LoggingTarget.Runtime, LogLevel.Debug);
             }
             catch (Exception ex)
             {
                 Logger.Log($"Exception during ASIO force reset: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
+            }
+        }
+
+        /// <summary>
+        /// 检查当前ASIO设备是否正在运行
+        /// </summary>
+        /// <returns>如果ASIO设备正在运行则为true，否则为false</returns>
+        public static bool IsDeviceRunning()
+        {
+            try
+            {
+                return BassAsio.IsStarted;
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -306,13 +339,19 @@ namespace osu.Framework.Audio.Asio
         public static bool SwitchToDevice(int newDeviceIndex, double? sampleRateToTry = null, int? bufferSize = null)
         {
             Logger.Log($"Switching ASIO device to index {newDeviceIndex}, sampleRate: {sampleRateToTry}, bufferSize: {bufferSize}", LoggingTarget.Runtime, LogLevel.Important);
-            
+
+            // 确保设备没有在运行
+            if (IsDeviceRunning())
+            {
+                StopDevice();
+            }
+
             // 先完全释放当前设备
             FreeDevice();
-            
-            // 添加额外延迟确保设备完全释放
-            Thread.Sleep(500);
-            
+
+            // 添加足够长的延迟确保设备完全释放
+            Thread.Sleep(1000);
+
             // 然后初始化新设备
             return InitializeDevice(newDeviceIndex, sampleRateToTry, bufferSize);
         }
@@ -325,6 +364,16 @@ namespace osu.Framework.Audio.Asio
         {
             try
             {
+                // 如果设备已经在运行，先停止
+                if (IsDeviceRunning())
+                {
+                    Logger.Log("ASIO device already running, stopping before restart", LoggingTarget.Runtime, LogLevel.Debug);
+                    StopDevice();
+                    
+                    // 稍作延迟
+                    Thread.Sleep(100);
+                }
+
                 // 启动前配置默认输出通道
                 if (!configureDefaultChannels())
                 {
@@ -341,6 +390,7 @@ namespace osu.Framework.Audio.Asio
 
                 if (BassAsio.Start())
                 {
+                    Logger.Log("ASIO device started successfully", LoggingTarget.Runtime, LogLevel.Debug);
                     return true;
                 }
                 else
@@ -381,7 +431,11 @@ namespace osu.Framework.Audio.Asio
         {
             try
             {
-                BassAsio.Stop();
+                if (IsDeviceRunning())
+                {
+                    BassAsio.Stop();
+                    Logger.Log("ASIO device stopped", LoggingTarget.Runtime, LogLevel.Debug);
+                }
             }
             catch (Exception ex)
             {

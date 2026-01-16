@@ -37,7 +37,7 @@ namespace osu.Framework.Tests.Audio
                     TestContext.WriteLine($"Found {asioDevices.Count} ASIO devices");
 
                     // Log the devices for debugging
-                    foreach (var device in deviceNames)
+                    foreach (string? device in deviceNames)
                         TestContext.WriteLine($"Device: {device}");
 
                     // Don't assert on ASIO device count since it may not be available in test environment
@@ -65,7 +65,7 @@ namespace osu.Framework.Tests.Audio
 
                     TestContext.WriteLine($"Found {asioDevices.Count} ASIO devices");
 
-                    foreach (var device in asioDevices)
+                    foreach (string? device in asioDevices)
                     {
                         string deviceName = device.Replace(" (ASIO)", "");
                         TestContext.WriteLine($"Testing ASIO device: {deviceName}");

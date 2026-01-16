@@ -227,6 +227,8 @@ namespace osu.Framework.Audio
 
         private readonly Lazy<TrackStore> globalTrackStore;
         private readonly Lazy<SampleStore> globalSampleStore;
+        private bool isChangingAsioSettings;
+        private object bufferSizeChangeLock;
 
         /// <summary>
         /// 设置ASIO采样率，对外接口。
@@ -350,17 +352,21 @@ namespace osu.Framework.Audio
                             }
 
                             syncingSelection = false;
+                            isChangingAsioSettings = false;
                         });
                     }
                     else
                     {
-                        Logger.Log($"Sample rate changed to {SAMPLE_RATE.Value}Hz, but current device ({AudioDevice.Value}) does not support runtime sample rate changes", name: "audio", level: LogLevel.Debug);
+                        Logger.Log($"Sample rate changed to {SAMPLE_RATE.Value}Hz, but current device ({AudioDevice.Value}) does not support runtime sample rate changes", name: "audio",
+                            level: LogLevel.Debug);
                         syncingSelection = false;
+                        isChangingAsioSettings = false;
                     }
                 }
                 catch
                 {
                     syncingSelection = false;
+                    isChangingAsioSettings = false;
                 }
             };
 
@@ -370,37 +376,58 @@ namespace osu.Framework.Audio
                 if (syncingSelection)
                     return;
 
-                syncingSelection = true;
-
-                try
+                // 检查是否已经在更改ASIO设置，避免重复操作
+                if (isChangingAsioSettings)
                 {
-                    // Only reinitialize if we're currently using an ASIO device (only ASIO supports runtime buffer size changes)
-                    if (hasTypeSuffix(AudioDevice.Value) && tryParseSuffixed(AudioDevice.Value, type_asio, out string _))
-                    {
-                        Logger.Log($"ASIO buffer size changed to {ASIO_BUFFER_SIZE.Value}, reinitializing ASIO device", name: "audio", level: LogLevel.Important);
-                        Logger.Log($"Current audio device before reinitialization: {AudioDevice.Value}", name: "audio", level: LogLevel.Debug);
-
-                        scheduler.AddOnce(() =>
-                        {
-                            initCurrentDevice();
-
-                            if (!IsCurrentDeviceValid())
-                            {
-                                Logger.Log("Buffer size setting failed, device invalid", name: "audio", level: LogLevel.Error);
-                            }
-
-                            syncingSelection = false;
-                        });
-                    }
-                    else
-                    {
-                        Logger.Log($"ASIO buffer size changed to {ASIO_BUFFER_SIZE.Value}, but current device ({AudioDevice.Value}) does not support runtime buffer size changes", name: "audio", level: LogLevel.Debug);
-                        syncingSelection = false;
-                    }
+                    Logger.Log("ASIO settings change already in progress, skipping buffer size change", name: "audio", level: LogLevel.Debug);
+                    return;
                 }
-                catch
+
+                lock (bufferSizeChangeLock)
                 {
-                    syncingSelection = false;
+                    // 再次检查以避免竞态条件
+                    if (isChangingAsioSettings)
+                    {
+                        Logger.Log("ASIO settings change already in progress, skipping buffer size change", name: "audio", level: LogLevel.Debug);
+                        return;
+                    }
+
+                    isChangingAsioSettings = true;
+                    syncingSelection = true;
+
+                    try
+                    {
+                        // Only reinitialize if we're currently using an ASIO device (only ASIO supports runtime buffer size changes)
+                        if (hasTypeSuffix(AudioDevice.Value) && tryParseSuffixed(AudioDevice.Value, type_asio, out string _))
+                        {
+                            Logger.Log($"ASIO buffer size changed to {ASIO_BUFFER_SIZE.Value}, reinitializing ASIO device", name: "audio", level: LogLevel.Important);
+                            Logger.Log($"Current audio device before reinitialization: {AudioDevice.Value}", name: "audio", level: LogLevel.Debug);
+
+                            scheduler.AddOnce(() =>
+                            {
+                                initCurrentDevice();
+
+                                if (!IsCurrentDeviceValid())
+                                {
+                                    Logger.Log("Buffer size setting failed, device invalid", name: "audio", level: LogLevel.Error);
+                                }
+
+                                syncingSelection = false;
+                                isChangingAsioSettings = false;
+                            });
+                        }
+                        else
+                        {
+                            Logger.Log($"ASIO buffer size changed to {ASIO_BUFFER_SIZE.Value}, but current device ({AudioDevice.Value}) does not support runtime buffer size changes", name: "audio", level: LogLevel.Debug);
+                            syncingSelection = false;
+                            isChangingAsioSettings = false;
+                        }
+                    }
+                    catch
+                    {
+                        syncingSelection = false;
+                        isChangingAsioSettings = false;
+                    }
                 }
             };
 
@@ -564,35 +591,30 @@ namespace osu.Framework.Audio
             // try using the specified device
             if (mode == AudioOutputMode.Asio)
             {
-                // ASIO output still requires BASS to be initialised, but output is performed by BassAsio.
-                // Use the OS default BASS device as a fallback initialisation target.
-                // For ASIO mode, add retry logic since device initialization can be flaky
-                const int max_asio_retries = 2;
-                bool asioInitSuccess = false;
+                // 对于 ASIO 模式，我们需要将设备名称转换为 ASIO 设备索引
+                int? asioDeviceIndex = AsioDeviceManager.FindAsioDeviceIndex(deviceName);
 
-                for (int retry = 0; retry < max_asio_retries; retry++)
+                if (asioDeviceIndex.HasValue)
                 {
-                    if (trySetDevice(bass_default_device, mode))
+                    // ASIO output still requires BASS to be initialised, but output is performed by BassAsio.
+                    // Use the OS default BASS device as a fallback initialisation target.
+                    // For ASIO mode, add retry logic since device initialization can be flaky
+
+                    bool asioInitSuccess = trySetDevice(bass_default_device, mode);
+
+                    if (asioInitSuccess)
                     {
-                        asioInitSuccess = true;
+                        // 如果BASS初始化成功，接下来需要确保ASIO设备也初始化成功
+                        // 在AudioThread中会使用具体的ASIO设备索引进行初始化
                     }
                     else
                     {
-                        Logger.Log($"ASIO device initialization failed, retrying in 300ms (attempt {retry + 1}/{max_asio_retries})", name: "audio", level: LogLevel.Important);
-                        Thread.Sleep(200);
-
-                        // Force cleanup between retries to prevent resource conflicts
-                        scheduler.Add(() =>
-                        {
-                            thread.FreeDevice(bass_default_device);
-                            Thread.Sleep(100);
-                        });
+                        Logger.Log("ASIO device initialization failed after all retries", name: "audio", level: LogLevel.Important);
                     }
                 }
-
-                if (!asioInitSuccess)
+                else
                 {
-                    Logger.Log("ASIO device initialization failed after all retries, falling back to default device", name: "audio", level: LogLevel.Important);
+                    Logger.Log($"ASIO device '{deviceName}' not found, falling back to default device", name: "audio", level: LogLevel.Error);
                 }
 
                 return;

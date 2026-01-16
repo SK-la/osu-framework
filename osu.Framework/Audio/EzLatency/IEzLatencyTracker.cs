@@ -1,6 +1,6 @@
 namespace osu.Framework.Audio.EzLatency
 {
-    #nullable disable
+#nullable disable
     using System;
 
     public interface IEzLatencyTracker : IDisposable

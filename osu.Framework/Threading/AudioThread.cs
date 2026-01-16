@@ -29,13 +29,10 @@ namespace osu.Framework.Threading
         private static int wasapiNativeUnavailableLogged;
         private static int asioResolverRegistered;
 
-        // EzOsuLatency 模块
-        internal readonly EzLatencyTestModule LatencyTestModule;
-        internal readonly EzLogModule LogModule;
-        internal readonly EzDriverModule DriverModule;
-        internal readonly EzHardwareModule HardwareModule;
+        // EzLatency 模块
+        internal readonly EzLatencyAnalyzer LatencyAnalyzer;
 
-        // EzOsuLatency 数据结构体
+        // EzLatency 数据结构体
         // NOTE: Previously these were present as placeholders; we now pass local structs from the playback path.
         // Keep no instance fields to avoid misleading shared mutable state.
 
@@ -49,11 +46,8 @@ namespace osu.Framework.Threading
             OnNewFrame += onNewFrame;
             PreloadBass();
 
-            // 初始化EzOsuLatency模块
-            LatencyTestModule = new EzLatencyTestModule();
-            LogModule = new EzLogModule();
-            DriverModule = new EzDriverModule();
-            HardwareModule = new EzHardwareModule();
+            // 初始化EzLatency模块
+            LatencyAnalyzer = new EzLatencyAnalyzer();
         }
 
         public override bool IsCurrent => ThreadSafety.IsAudioThread;
@@ -97,8 +91,8 @@ namespace osu.Framework.Threading
                 }
             }
 
-            // EzOsuLatency: 定期运行延迟测试
-            LatencyTestModule.RunPeriodicTest();
+            // EzLatency: 延迟分析器无需定期测试
+            // LatencyAnalyzer在需要时会自动处理延迟数据
         }
 
         internal void RegisterManager(AudioManager manager)
@@ -273,8 +267,53 @@ namespace osu.Framework.Threading
                     break;
 
                 case AudioOutputMode.Asio:
-                    if (!initAsio(deviceId, preferredSampleRate))
-                        return false;
+                    // 对于ASIO模式，我们需要获取实际的ASIO设备索引，而不是使用BASS设备ID
+                    // 从AudioManager获取当前选择的设备名称
+                    string selectedDeviceName = Manager?.AudioDevice.Value ?? string.Empty;
+
+                    if (!string.IsNullOrEmpty(selectedDeviceName))
+                    {
+                        // 解析选择以获取设备名称
+                        var (mode, deviceName) = parseAudioSelection(selectedDeviceName);
+
+                        if (!string.IsNullOrEmpty(deviceName))
+                        {
+                            int? asioDeviceIndex = AsioDeviceManager.FindAsioDeviceIndex(deviceName);
+
+                            if (asioDeviceIndex.HasValue)
+                            {
+                                if (!initAsio(asioDeviceIndex.Value, preferredSampleRate))
+                                    return false;
+                            }
+                            else
+                            {
+                                Logger.Log($"无法找到ASIO设备: {deviceName}", name: "audio", level: LogLevel.Error);
+                                return false;
+                            }
+                        }
+                        else
+                        {
+                            Logger.Log("无法从选择中提取ASIO设备名称", name: "audio", level: LogLevel.Error);
+                            return false;
+                        }
+                    }
+                    else
+                    {
+                        Logger.Log("没有选择ASIO设备名称", name: "audio");
+                        // 默认使用第一个可用的ASIO设备
+                        var availableDevices = AsioDeviceManager.EnumerateAsioDevices().ToList();
+
+                        if (availableDevices.Count != 0)
+                        {
+                            if (!initAsio(availableDevices.First().Index, preferredSampleRate))
+                                return false;
+                        }
+                        else
+                        {
+                            Logger.Log("没有可用的ASIO设备", name: "audio", level: LogLevel.Error);
+                            return false;
+                        }
+                    }
 
                     break;
             }
@@ -618,6 +657,7 @@ namespace osu.Framework.Threading
 
         private bool initAsio(int asioDeviceIndex, double preferredSampleRate = 48000)
         {
+            // 首先确保之前的ASIO设备完全释放
             freeAsio();
 
             // 使用来自AudioManager的统一采样率和缓冲区大小
@@ -625,6 +665,14 @@ namespace osu.Framework.Threading
             {
                 preferredSampleRate = Manager.SAMPLE_RATE.Value;
                 int bufferSize = Manager.ASIO_BUFFER_SIZE.Value;
+
+                // 验证当前设备是否已在运行，如果是则先停止
+                if (AsioDeviceManager.IsDeviceRunning())
+                {
+                    Logger.Log("ASIO device already running, stopping before initialization", name: "audio", level: LogLevel.Debug);
+                    AsioDeviceManager.StopDevice();
+                    Thread.Sleep(100);
+                }
 
                 if (!AsioDeviceManager.InitializeDevice(asioDeviceIndex, preferredSampleRate, bufferSize))
                 {
@@ -826,41 +874,36 @@ namespace osu.Framework.Threading
             }
         }
 
-        /// <summary>
-        /// 记录延迟数据到日志
-        /// </summary>
-        /// <param name="inputLatency">输入延迟</param>
-        /// <param name="playbackLatency">播放延迟</param>
-        /// <param name="totalLatency">总延迟</param>
-        /// <param name="uncontrollableLatency">不可控延迟</param>
-        internal void LogLatencyData(double inputLatency, double playbackLatency, double totalLatency, double uncontrollableLatency)
-        {
-            const string driver_type = "Unknown";
-            int sampleRate = 44100;
-            const int buffer_size = 128;
 
-            // 获取当前驱动信息
-            if (Manager != null)
-            {
-                sampleRate = Manager.SAMPLE_RATE.Value;
-                // TODO: 获取bufferSize
-            }
-
-            // 确定驱动类型
-            // TODO: 从当前输出模式确定驱动类型
-
-            LogModule.LogLatency(
-                LatencyTestModule.RecordTimestamp(),
-                driver_type,
-                sampleRate,
-                buffer_size,
-                inputLatency,
-                playbackLatency,
-                totalLatency,
-                uncontrollableLatency
-            );
-        }
 
         #endregion
+
+        /// <summary>
+        /// 解析音频设备选择字符串以获取设备名称
+        /// </summary>
+        /// <param name="selection">选择字符串</param>
+        /// <returns>输出模式和设备名称的元组</returns>
+        private (AudioOutputMode mode, string deviceName) parseAudioSelection(string selection)
+        {
+            const string type_asio = "ASIO";
+
+            // 默认设备
+            if (string.IsNullOrEmpty(selection))
+            {
+                return (AudioOutputMode.Default, string.Empty);
+            }
+
+            // 检查是否为ASIO设备
+            string suffix = $" ({type_asio})";
+
+            if (selection.EndsWith(suffix, StringComparison.Ordinal))
+            {
+                string deviceName = selection[..^suffix.Length];
+                return (AudioOutputMode.Asio, deviceName);
+            }
+
+            // 其他情况返回默认值
+            return (AudioOutputMode.Default, selection);
+        }
     }
 }

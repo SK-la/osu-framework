@@ -31,7 +31,10 @@ namespace osu.Framework.Audio.EzLatency
             {
                 OnMeasurement?.Invoke(record);
             }
-            catch { }
+            catch (Exception)
+            {
+                // 记录异常但不抛出，以避免影响主程序流程
+            }
         }
 
         /// <summary>
