@@ -168,9 +168,10 @@ namespace osu.Framework.Input
             }
 
             InputManager.FocusedDrawableThisClick = null;
-
+#if DEBUG
             if (clicked != null)
                 Logger.Log($"MouseClick handled by {clicked}.", LoggingTarget.Runtime, LogLevel.Debug);
+#endif
         }
 
         private bool handleDoubleClick(InputState state, List<Drawable> targets)
