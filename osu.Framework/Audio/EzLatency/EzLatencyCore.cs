@@ -141,7 +141,10 @@ namespace osu.Framework.Audio.EzLatency
                 OutputHardwareTime = currentHardwareData.OutputHardwareTime,
                 InputHardwareTime = currentHardwareData.InputHardwareTime,
                 LatencyDifference = currentHardwareData.LatencyDifference,
-                MeasuredMs = currentInputData.PlaybackTime - currentInputData.InputTime,
+                // MeasuredMs: prefer Playback - Input when available, otherwise use Judge - Input as a best-effort.
+                MeasuredMs = (currentInputData.PlaybackTime > 0)
+                    ? currentInputData.PlaybackTime - currentInputData.InputTime
+                    : (currentInputData.JudgeTime > 0 ? currentInputData.JudgeTime - currentInputData.InputTime : 0),
                 Note = currentHardwareData.IsValid ? "complete-latency-measurement" : "best-effort-no-hw",
                 InputData = currentInputData,
                 HardwareData = currentHardwareData
@@ -389,19 +392,41 @@ namespace osu.Framework.Audio.EzLatency
                 if (records.Count == 0)
                     return new EzLatencyStatistics { RecordCount = 0 };
 
-                var inputToJudge = records.Select(r => r.JudgeTime - r.InputTime).ToList();
-                var inputToPlayback = records.Select(r => r.PlaybackTime - r.InputTime).ToList();
-                var playbackToJudge = records.Select(r => r.JudgeTime - r.PlaybackTime).ToList();
+                // Filter out invalid or incomplete differences (<= 0) to avoid extreme/garbage values.
+                var inputToJudge = records
+                    .Where(r => r.InputTime > 0 && r.JudgeTime > 0)
+                    .Select(r => r.JudgeTime - r.InputTime)
+                    .Where(d => Math.Abs(d) <= 1000) // sanity cap: ignore absurdly large diffs (>1000ms)
+                    .ToList();
+
+                var inputToPlayback = records
+                    .Where(r => r.InputTime > 0 && r.PlaybackTime > 0)
+                    .Select(r => r.PlaybackTime - r.InputTime)
+                    .Where(d => Math.Abs(d) <= 1000)
+                    .ToList();
+
+                var playbackToJudge = records
+                    .Where(r => r.PlaybackTime > 0 && r.JudgeTime > 0)
+                    .Select(r => r.JudgeTime - r.PlaybackTime)
+                    .Where(d => Math.Abs(d) <= 1000)
+                    .ToList();
+
                 var hardwareLatency = records.Select(r => r.OutputHardwareTime).Where(h => h > 0).ToList();
+
+                double avgInputToJudge = inputToJudge.Count > 0 ? inputToJudge.Average() : 0;
+                double avgInputToPlayback = inputToPlayback.Count > 0 ? inputToPlayback.Average() : 0;
+                double avgPlaybackToJudge = playbackToJudge.Count > 0 ? playbackToJudge.Average() : 0;
+                double minInputToJudge = inputToJudge.Count > 0 ? inputToJudge.Min() : 0;
+                double maxInputToJudge = inputToJudge.Count > 0 ? inputToJudge.Max() : 0;
 
                 return new EzLatencyStatistics
                 {
                     RecordCount = records.Count,
-                    AvgInputToJudge = inputToJudge.Average(),
-                    AvgInputToPlayback = inputToPlayback.Average(),
-                    AvgPlaybackToJudge = playbackToJudge.Average(),
-                    MinInputToJudge = inputToJudge.Min(),
-                    MaxInputToJudge = inputToJudge.Max(),
+                    AvgInputToJudge = avgInputToJudge,
+                    AvgInputToPlayback = avgInputToPlayback,
+                    AvgPlaybackToJudge = avgPlaybackToJudge,
+                    MinInputToJudge = minInputToJudge,
+                    MaxInputToJudge = maxInputToJudge,
                     AvgHardwareLatency = hardwareLatency.Count > 0 ? hardwareLatency.Average() : 0
                 };
             }
