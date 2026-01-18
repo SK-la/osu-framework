@@ -1,4 +1,4 @@
-// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
 #nullable disable
@@ -227,8 +227,9 @@ namespace osu.Framework.Audio
 
         private readonly Lazy<TrackStore> globalTrackStore;
         private readonly Lazy<SampleStore> globalSampleStore;
+
         private bool isChangingAsioSettings;
-        private object bufferSizeChangeLock;
+        // private object bufferSizeChangeLock;
 
         /// <summary>
         /// 设置ASIO采样率，对外接口。
@@ -383,8 +384,8 @@ namespace osu.Framework.Audio
                     return;
                 }
 
-                lock (bufferSizeChangeLock)
-                {
+                // lock (bufferSizeChangeLock)
+                // {
                     // 再次检查以避免竞态条件
                     if (isChangingAsioSettings)
                     {
@@ -428,7 +429,7 @@ namespace osu.Framework.Audio
                         syncingSelection = false;
                         isChangingAsioSettings = false;
                     }
-                }
+                // }
             };
 
             AddItem(TrackMixer = createAudioMixer(null, nameof(TrackMixer)));

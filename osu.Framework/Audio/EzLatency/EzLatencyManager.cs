@@ -123,7 +123,7 @@ namespace osu.Framework.Audio.EzLatency
         /// <summary>
         /// Create a simple file logger for latency records. Convenience factory to make EzLoggerAdapter discoverable.
         /// </summary>
-        public IEzLatencyLogger CreateLogger(string filePath = null) => new EzLoggerAdapter(null, filePath);
+        public IEzLatencyLogger CreateLogger(string filePath) => new EzLoggerAdapter(null, filePath);
 
         /// <summary>
         /// Create a basic in-process tracker which emits measurements into the global pipeline.
