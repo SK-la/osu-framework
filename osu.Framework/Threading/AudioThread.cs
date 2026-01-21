@@ -246,19 +246,25 @@ namespace osu.Framework.Threading
             // 对于ASIO模式，在初始化前添加额外延迟以确保设备完全释放
             if (outputMode == AudioOutputMode.Asio)
             {
-                Logger.Log("检测到ASIO模式，在设备初始化前添加额外延迟", name: "audio", level: LogLevel.Debug);
                 // 增加延迟以确保设备完全释放
-                Thread.Sleep(200);
+                Thread.Sleep(100);
             }
 
             // Try to initialise the device, or request a re-initialise.
-            // 128 == BASS_DEVICE_REINIT. Only use it when the device is already initialised.
-            var initFlags = initialised_devices.Contains(deviceId) ? (DeviceInitFlags)128 : 0;
+            var initFlags = initialised_devices.Contains(deviceId) ? (DeviceInitFlags)16 : 0;
 
             if (!Bass.Init(deviceId, Flags: initFlags))
             {
-                Logger.Log($"BASS.Init({deviceId}) failed: {Bass.LastError}", name: "audio", level: LogLevel.Error);
-                return false;
+                // Treat "Already" as non-fatal: BASS may already be initialised for this device in-process.
+                if (Bass.LastError == Errors.Already)
+                {
+                    Logger.Log($"BASS.Init({deviceId}) returned Already; continuing with existing initialisation.", name: "audio", level: LogLevel.Debug);
+                }
+                else
+                {
+                    Logger.Log($"BASS.Init({deviceId}) failed: {Bass.LastError}", name: "audio", level: LogLevel.Error);
+                    return false;
+                }
             }
 
             switch (outputMode)
