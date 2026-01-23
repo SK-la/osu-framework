@@ -150,7 +150,7 @@ namespace osu.Framework.Input
                 case KeyDownEvent keyDown:
                     if (keyDown.Repeat)
                         return false;
-                    // Apply framework input state update
+
                     new KeyboardKeyInput(keyDown.Key, true).Apply(CurrentState, this);
 
                     // Record raw input timestamp at the earliest point possible for latency measurement.
@@ -246,33 +246,20 @@ namespace osu.Framework.Input
                 return;
 
             var parentState = parentInputManager.CurrentState;
-            var mouseButtons = parentState?.Mouse?.Buttons ?? new ButtonStates<MouseButton>();
-            var mouseDiff = mouseButtons.EnumerateDifference(CurrentState.Mouse.Buttons);
-
-            var keyboardKeys = parentState?.Keyboard.Keys ?? new ButtonStates<Key>();
-            var keyDiff = keyboardKeys.EnumerateDifference(CurrentState.Keyboard.Keys);
-
-            var touches = parentState?.Touch ?? new TouchState();
-            var (touchesDeactivated, _) = touches.EnumerateDifference(CurrentState.Touch);
-
-            var joystickButtons = parentState?.Joystick?.Buttons ?? new ButtonStates<JoystickButton>();
-            var joyButtonDiff = joystickButtons.EnumerateDifference(CurrentState.Joystick.Buttons);
-
-            var midiKeys = parentState?.Midi?.Keys ?? new ButtonStates<MidiKey>();
-            var midiDiff = midiKeys.EnumerateDifference(CurrentState.Midi.Keys);
-
-            var penButtons = parentState?.Tablet?.PenButtons ?? new ButtonStates<TabletPenButton>();
-            var tabletPenDiff = penButtons.EnumerateDifference(CurrentState.Tablet.PenButtons);
-
-            var auxButtons = parentState?.Tablet?.AuxiliaryButtons ?? new ButtonStates<TabletAuxiliaryButton>();
-            var tabletAuxiliaryDiff = auxButtons.EnumerateDifference(CurrentState.Tablet.AuxiliaryButtons);
+            var mouseDiff = (parentState?.Mouse?.Buttons ?? new ButtonStates<MouseButton>()).EnumerateDifference(CurrentState.Mouse.Buttons);
+            var keyDiff = (parentState?.Keyboard.Keys ?? new ButtonStates<Key>()).EnumerateDifference(CurrentState.Keyboard.Keys);
+            var touchDiff = (parentState?.Touch ?? new TouchState()).EnumerateDifference(CurrentState.Touch);
+            var joyButtonDiff = (parentState?.Joystick?.Buttons ?? new ButtonStates<JoystickButton>()).EnumerateDifference(CurrentState.Joystick.Buttons);
+            var midiDiff = (parentState?.Midi?.Keys ?? new ButtonStates<MidiKey>()).EnumerateDifference(CurrentState.Midi.Keys);
+            var tabletPenDiff = (parentState?.Tablet?.PenButtons ?? new ButtonStates<TabletPenButton>()).EnumerateDifference(CurrentState.Tablet.PenButtons);
+            var tabletAuxiliaryDiff = (parentState?.Tablet?.AuxiliaryButtons ?? new ButtonStates<TabletAuxiliaryButton>()).EnumerateDifference(CurrentState.Tablet.AuxiliaryButtons);
 
             if (mouseDiff.Released.Length > 0)
                 new MouseButtonInput(mouseDiff.Released.Select(button => new ButtonInputEntry<MouseButton>(button, false))).Apply(CurrentState, this);
             foreach (var key in keyDiff.Released)
                 new KeyboardKeyInput(key, false).Apply(CurrentState, this);
-            if (touchesDeactivated.Length > 0)
-                new TouchInput(touchesDeactivated, false).Apply(CurrentState, this);
+            if (touchDiff.deactivated.Length > 0)
+                new TouchInput(touchDiff.deactivated, false).Apply(CurrentState, this);
             foreach (var button in joyButtonDiff.Released)
                 new JoystickButtonInput(button, false).Apply(CurrentState, this);
             foreach (var key in midiDiff.Released)

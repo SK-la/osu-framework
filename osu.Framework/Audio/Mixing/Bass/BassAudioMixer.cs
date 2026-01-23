@@ -176,9 +176,7 @@ namespace osu.Framework.Audio.Mixing.Bass
         /// If successful, the position is returned.
         /// </returns>
         public long ChannelGetPosition(IBassAudioChannel channel, PositionFlags mode = PositionFlags.Bytes)
-        {
-            return BassMix.ChannelGetPosition(channel.Handle, mode);
-        }
+            => BassMix.ChannelGetPosition(channel.Handle, mode);
 
         /// <summary>
         /// Sets the playback position of a channel.
@@ -212,9 +210,7 @@ namespace osu.Framework.Audio.Mixing.Bass
         /// <param name="flags">What levels to retrieve.</param>
         /// <returns><c>true</c> if successful, false otherwise.</returns>
         public bool ChannelGetLevel(IBassAudioChannel channel, [In, Out] float[] levels, float length, LevelRetrievalFlags flags)
-        {
-            return BassMix.ChannelGetLevel(channel.Handle, levels, length, flags) != -1;
-        }
+            => BassMix.ChannelGetLevel(channel.Handle, levels, length, flags) != -1;
 
         /// <summary>
         /// Retrieves the immediate sample data (or an FFT representation of it) of a channel.
@@ -229,9 +225,7 @@ namespace osu.Framework.Audio.Mixing.Bass
         /// <para>When using the <see cref="DataFlags.Available"/> flag, the number of bytes in the channel's buffer is returned.</para>
         /// </returns>
         public int ChannelGetData(IBassAudioChannel channel, float[] buffer, int length)
-        {
-            return BassMix.ChannelGetData(channel.Handle, buffer, length);
-        }
+            => BassMix.ChannelGetData(channel.Handle, buffer, length);
 
         /// <summary>
         /// Sets up a synchroniser on a mixer source channel.
@@ -244,9 +238,7 @@ namespace osu.Framework.Audio.Mixing.Bass
         /// <param name="user">User instance data to pass to the callback function.</param>
         /// <returns>If successful, then the new synchroniser's handle is returned, else 0 is returned. Use <see cref="ManagedBass.Bass.LastError" /> to get the error code.</returns>
         public int ChannelSetSync(IBassAudioChannel channel, SyncFlags type, long parameter, SyncProcedure procedure, IntPtr user = default)
-        {
-            return BassMix.ChannelSetSync(channel.Handle, type, parameter, procedure, user);
-        }
+            => BassMix.ChannelSetSync(channel.Handle, type, parameter, procedure, user);
 
         /// <summary>
         /// Removes a synchroniser from a mixer source channel.
@@ -255,9 +247,7 @@ namespace osu.Framework.Audio.Mixing.Bass
         /// <param name="sync">Handle of the synchroniser to remove (return value of a previous <see cref="BassMix.ChannelSetSync(int,SyncFlags,long,SyncProcedure,IntPtr)" /> call).</param>
         /// <returns>If successful, <see langword="true" /> is returned, else <see langword="false" /> is returned. Use <see cref="ManagedBass.Bass.LastError" /> to get the error code.</returns>
         public bool ChannelRemoveSync(IBassAudioChannel channel, int sync)
-        {
-            return BassMix.ChannelRemoveSync(channel.Handle, sync);
-        }
+            => BassMix.ChannelRemoveSync(channel.Handle, sync);
 
         /// <summary>
         /// Frees a channel's resources.
