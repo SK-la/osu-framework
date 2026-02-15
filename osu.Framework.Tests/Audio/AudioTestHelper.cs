@@ -73,6 +73,7 @@ namespace osu.Framework.Tests.Audio
             try
             {
                 int count = 0;
+
                 foreach (var device in AsioDeviceManager.AvailableDevices)
                 {
                     Console.WriteLine($"ASIO Device {device.Index}: {device.Name}");

@@ -34,7 +34,7 @@ namespace osu.Framework.Tests.Audio
                     Assert.Ignore("No ASIO devices available for testing");
 
                 // Get current device before test
-                string originalDevice = audioManager.AudioDevice.Value;
+                // string originalDevice = audioManager.AudioDevice.Value;
 
                 // Try to switch to an ASIO device that might fail
                 // We'll use the first one, but the test environment might succeed
@@ -53,14 +53,7 @@ namespace osu.Framework.Tests.Audio
 
                 // In test environment, it might succeed, but in real world with failing ASIO,
                 // it should fallback to default (empty string) or original device
-                if (currentDevice != testDevice)
-                {
-                    TestContext.WriteLine("ASIO device failed and fell back to another device - this is expected behavior");
-                }
-                else
-                {
-                    TestContext.WriteLine("ASIO device was successfully selected");
-                }
+                TestContext.WriteLine(currentDevice != testDevice ? "ASIO device failed and fell back to another device - this is expected behavior" : "ASIO device was successfully selected");
 
                 // The key test is that the system doesn't crash and audio still works
                 // We can't easily test the actual fallback in test environment since ASIO works here

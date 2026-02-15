@@ -73,12 +73,12 @@ namespace osu.Framework.Audio
         /// <summary>
         /// 采样率，用于ASIO设备的初始化和运行时更改。
         /// </summary>
-        public readonly Bindable<int> SAMPLE_RATE = new Bindable<int>(48000);
+        public readonly Bindable<int> SampleRate = new Bindable<int>(48000);
 
         /// <summary>
         /// ASIO缓冲区大小，默认为128，用于ASIO设备的初始化。
         /// </summary>
-        public readonly Bindable<int> ASIO_BUFFER_SIZE = new Bindable<int>(128);
+        public readonly Bindable<int> AsioBufferSize = new Bindable<int>(128);
 
         /// <summary>
         /// The names of all available audio devices.
@@ -237,7 +237,7 @@ namespace osu.Framework.Audio
         /// <param name="sampleRate">The preferred sample rate in Hz.</param>
         public void SetPreferredAsioSampleRate(int sampleRate)
         {
-            SAMPLE_RATE.Value = sampleRate;
+            SampleRate.Value = sampleRate;
         }
 
         /// <summary>
@@ -246,7 +246,7 @@ namespace osu.Framework.Audio
         /// <param name="bufferSize">The preferred buffer size for ASIO device.</param>
         public void SetAsioBufferSize(int bufferSize)
         {
-            ASIO_BUFFER_SIZE.Value = bufferSize;
+            AsioBufferSize.Value = bufferSize;
         }
 
         /// <summary>
@@ -328,7 +328,7 @@ namespace osu.Framework.Audio
             GlobalMixerHandle.ValueChanged += handle => usingGlobalMixer.Value = handle.NewValue.HasValue;
 
             // Listen for unified sample rate changes and reinitialize device if supported
-            SAMPLE_RATE.ValueChanged += e =>
+            SampleRate.ValueChanged += e =>
             {
                 if (syncingSelection)
                     return;
@@ -340,7 +340,7 @@ namespace osu.Framework.Audio
                     // Only reinitialize if we're currently using an ASIO device (only ASIO supports runtime sample rate changes)
                     if (hasTypeSuffix(AudioDevice.Value) && tryParseSuffixed(AudioDevice.Value, type_asio, out string _))
                     {
-                        Logger.Log($"Sample rate changed to {SAMPLE_RATE.Value}Hz, reinitializing ASIO device", name: "audio", level: LogLevel.Important);
+                        Logger.Log($"Sample rate changed to {SampleRate.Value}Hz, reinitializing ASIO device", name: "audio", level: LogLevel.Important);
                         Logger.Log($"Current audio device before reinitialization: {AudioDevice.Value}", name: "audio", level: LogLevel.Debug);
 
                         scheduler.AddOnce(() =>
@@ -358,7 +358,7 @@ namespace osu.Framework.Audio
                     }
                     else
                     {
-                        Logger.Log($"Sample rate changed to {SAMPLE_RATE.Value}Hz, but current device ({AudioDevice.Value}) does not support runtime sample rate changes", name: "audio",
+                        Logger.Log($"Sample rate changed to {SampleRate.Value}Hz, but current device ({AudioDevice.Value}) does not support runtime sample rate changes", name: "audio",
                             level: LogLevel.Debug);
                         syncingSelection = false;
                         isChangingAsioSettings = false;
@@ -372,7 +372,7 @@ namespace osu.Framework.Audio
             };
 
             // Listen for ASIO buffer size changes and reinitialize device if supported
-            ASIO_BUFFER_SIZE.ValueChanged += e =>
+            AsioBufferSize.ValueChanged += e =>
             {
                 if (syncingSelection)
                     return;
@@ -401,7 +401,7 @@ namespace osu.Framework.Audio
                         // Only reinitialize if we're currently using an ASIO device (only ASIO supports runtime buffer size changes)
                         if (hasTypeSuffix(AudioDevice.Value) && tryParseSuffixed(AudioDevice.Value, type_asio, out string _))
                         {
-                            Logger.Log($"ASIO buffer size changed to {ASIO_BUFFER_SIZE.Value}, reinitializing ASIO device", name: "audio", level: LogLevel.Important);
+                            Logger.Log($"ASIO buffer size changed to {AsioBufferSize.Value}, reinitializing ASIO device", name: "audio", level: LogLevel.Important);
                             Logger.Log($"Current audio device before reinitialization: {AudioDevice.Value}", name: "audio", level: LogLevel.Debug);
 
                             scheduler.AddOnce(() =>
@@ -419,7 +419,7 @@ namespace osu.Framework.Audio
                         }
                         else
                         {
-                            Logger.Log($"ASIO buffer size changed to {ASIO_BUFFER_SIZE.Value}, but current device ({AudioDevice.Value}) does not support runtime buffer size changes", name: "audio", level: LogLevel.Debug);
+                            Logger.Log($"ASIO buffer size changed to {AsioBufferSize.Value}, but current device ({AudioDevice.Value}) does not support runtime buffer size changes", name: "audio", level: LogLevel.Debug);
                             syncingSelection = false;
                             isChangingAsioSettings = false;
                         }
@@ -787,7 +787,7 @@ namespace osu.Framework.Audio
 
                 try
                 {
-                    innerSuccess = thread.InitDevice(device, outputMode, SAMPLE_RATE.Value);
+                    innerSuccess = thread.InitDevice(device, outputMode, SampleRate.Value);
                 }
                 catch (Exception e)
                 {

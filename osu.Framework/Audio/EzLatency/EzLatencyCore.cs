@@ -2,25 +2,25 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
-using System.IO;
-using System.Linq;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using osu.Framework.Logging;
 using osu.Framework.Threading;
 
 namespace osu.Framework.Audio.EzLatency
 {
-    #nullable disable
-
-    // --- Structures and Record -------------------------------------------------
+#nullable disable
 
     public struct EzLatencyInputData
     {
         public double InputTime;
         public object KeyValue;
         public double JudgeTime;
+
         public double PlaybackTime;
+
         // Consider input+playback or input+judge as valid for best-effort measurements.
         public bool IsValid => InputTime > 0 && (PlaybackTime > 0 || JudgeTime > 0);
     }
@@ -67,7 +67,7 @@ namespace osu.Framework.Audio.EzLatency
     public class EzLatencyAnalyzer
     {
         private readonly Stopwatch stopwatch;
-        public bool Enabled { get; set; } = false;
+        public bool Enabled { get; set; }
         public event Action<EzLatencyRecord> OnNewRecord;
 
         private EzLatencyInputData currentInputData;
@@ -83,6 +83,7 @@ namespace osu.Framework.Audio.EzLatency
         public void RecordInputData(double inputTime, object keyValue = null)
         {
             if (!Enabled) return;
+
             if (currentInputData.InputTime > 0)
             {
                 currentInputData = default;
@@ -97,6 +98,7 @@ namespace osu.Framework.Audio.EzLatency
         public void RecordJudgeData(double judgeTime)
         {
             if (!Enabled) return;
+
             currentInputData.JudgeTime = judgeTime;
             checkTimeout();
         }
@@ -104,6 +106,7 @@ namespace osu.Framework.Audio.EzLatency
         public void RecordPlaybackData(double playbackTime)
         {
             if (!Enabled) return;
+
             currentInputData.PlaybackTime = playbackTime;
             tryGenerateCompleteRecord();
         }
@@ -111,6 +114,7 @@ namespace osu.Framework.Audio.EzLatency
         public void RecordHardwareData(double driverTime, double outputHardwareTime, double inputHardwareTime, double latencyDifference)
         {
             if (!Enabled) return;
+
             currentHardwareData = new EzLatencyHardwareData
             {
                 DriverTime = driverTime,
@@ -142,9 +146,11 @@ namespace osu.Framework.Audio.EzLatency
                 InputHardwareTime = currentHardwareData.InputHardwareTime,
                 LatencyDifference = currentHardwareData.LatencyDifference,
                 // MeasuredMs: prefer Playback - Input when available, otherwise use Judge - Input as a best-effort.
-                MeasuredMs = (currentInputData.PlaybackTime > 0)
+                MeasuredMs = currentInputData.PlaybackTime > 0
                     ? currentInputData.PlaybackTime - currentInputData.InputTime
-                    : (currentInputData.JudgeTime > 0 ? currentInputData.JudgeTime - currentInputData.InputTime : 0),
+                    : currentInputData.JudgeTime > 0
+                        ? currentInputData.JudgeTime - currentInputData.InputTime
+                        : 0,
                 Note = currentHardwareData.IsValid ? "complete-latency-measurement" : "best-effort-no-hw",
                 InputData = currentInputData,
                 HardwareData = currentHardwareData
@@ -152,17 +158,17 @@ namespace osu.Framework.Audio.EzLatency
 
             try
             {
-                    OnNewRecord?.Invoke(record);
-                    EzLatencyService.Instance.PushRecord(record);
-                    if (currentHardwareData.IsValid)
-                        Logger.Log($"EzLatency 完整记录已生成: Input→Playback={record.PlaybackTime - record.InputTime:F2}ms", LoggingTarget.Runtime, LogLevel.Debug);
-                    else
-                        Logger.Log($"EzLatency 最佳尝试记录（无硬件时间戳）: Input→Playback={record.PlaybackTime - record.InputTime:F2}ms", LoggingTarget.Runtime, LogLevel.Debug);
+                OnNewRecord?.Invoke(record);
+                EzLatencyService.Instance.PushRecord(record);
+                Logger.Log(
+                    currentHardwareData.IsValid
+                        ? $"EzLatency 完整记录已生成: Input→Playback={record.PlaybackTime - record.InputTime:F2}ms"
+                        : $"EzLatency 最佳尝试记录（无硬件时间戳）: Input→Playback={record.PlaybackTime - record.InputTime:F2}ms", LoggingTarget.Runtime, LogLevel.Debug);
             }
-                catch (Exception ex)
-                {
-                    Logger.Log($"EzLatencyAnalyzer: tryGenerateCompleteRecord failed: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
-                }
+            catch (Exception ex)
+            {
+                Logger.Log($"EzLatencyAnalyzer: tryGenerateCompleteRecord failed: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
+            }
 
             ClearCurrentData();
         }
@@ -174,6 +180,7 @@ namespace osu.Framework.Audio.EzLatency
             if (recordStartTime > 0)
             {
                 double elapsed = stopwatch.Elapsed.TotalMilliseconds - recordStartTime;
+
                 if (elapsed > timeout_ms)
                 {
                     Logger.Log($"EzLatency 数据收集超时 ({elapsed:F0}ms)，清除旧数据", LoggingTarget.Runtime, LogLevel.Debug);
@@ -225,14 +232,14 @@ namespace osu.Framework.Audio.EzLatency
     public class EzLoggerAdapter : IEzLatencyLogger
     {
         private readonly Scheduler scheduler;
-        private StreamWriter fileWriter;
+        private readonly StreamWriter fileWriter;
         public event Action<EzLatencyRecord> OnRecord;
 
         public EzLoggerAdapter(Scheduler scheduler = null, string filePath = null)
         {
             this.scheduler = scheduler;
 
-            this.scheduler = scheduler as Scheduler;
+            this.scheduler = scheduler;
             {
                 try
                 {
@@ -343,7 +350,9 @@ namespace osu.Framework.Audio.EzLatency
         public void RecordInputData(double inputTime, object keyValue = null) => analyzer.RecordInputData(inputTime, keyValue);
         public void RecordJudgeData(double judgeTime) => analyzer.RecordJudgeData(judgeTime);
         public void RecordPlaybackData(double playbackTime) => analyzer.RecordPlaybackData(playbackTime);
-        public void RecordHardwareData(double driverTime, double outputHardwareTime, double inputHardwareTime, double latencyDifference) => analyzer.RecordHardwareData(driverTime, outputHardwareTime, inputHardwareTime, latencyDifference);
+
+        public void RecordHardwareData(double driverTime, double outputHardwareTime, double inputHardwareTime, double latencyDifference) =>
+            analyzer.RecordHardwareData(driverTime, outputHardwareTime, inputHardwareTime, latencyDifference);
     }
 
     // --- Statistics & Collector ----------------------------------------------
@@ -394,22 +403,22 @@ namespace osu.Framework.Audio.EzLatency
 
                 // Filter out invalid or incomplete differences (<= 0) to avoid extreme/garbage values.
                 var inputToJudge = records
-                    .Where(r => r.InputTime > 0 && r.JudgeTime > 0)
-                    .Select(r => r.JudgeTime - r.InputTime)
-                    .Where(d => Math.Abs(d) <= 1000) // sanity cap: ignore absurdly large diffs (>1000ms)
-                    .ToList();
+                                   .Where(r => r.InputTime > 0 && r.JudgeTime > 0)
+                                   .Select(r => r.JudgeTime - r.InputTime)
+                                   .Where(d => Math.Abs(d) <= 1000) // sanity cap: ignore absurdly large diffs (>1000ms)
+                                   .ToList();
 
                 var inputToPlayback = records
-                    .Where(r => r.InputTime > 0 && r.PlaybackTime > 0)
-                    .Select(r => r.PlaybackTime - r.InputTime)
-                    .Where(d => Math.Abs(d) <= 1000)
-                    .ToList();
+                                      .Where(r => r.InputTime > 0 && r.PlaybackTime > 0)
+                                      .Select(r => r.PlaybackTime - r.InputTime)
+                                      .Where(d => Math.Abs(d) <= 1000)
+                                      .ToList();
 
                 var playbackToJudge = records
-                    .Where(r => r.PlaybackTime > 0 && r.JudgeTime > 0)
-                    .Select(r => r.JudgeTime - r.PlaybackTime)
-                    .Where(d => Math.Abs(d) <= 1000)
-                    .ToList();
+                                      .Where(r => r.PlaybackTime > 0 && r.JudgeTime > 0)
+                                      .Select(r => r.JudgeTime - r.PlaybackTime)
+                                      .Where(d => Math.Abs(d) <= 1000)
+                                      .ToList();
 
                 var hardwareLatency = records.Select(r => r.OutputHardwareTime).Where(h => h > 0).ToList();
 

@@ -44,6 +44,7 @@ namespace osu.Framework.Tests.Audio
 
                 // Create a track
                 var track = audioManager.Tracks.Get("Resources.Tracks.sample-track.mp3");
+
                 if (track == null)
                 {
                     TestContext.WriteLine("Test audio file not available, but device switching worked");

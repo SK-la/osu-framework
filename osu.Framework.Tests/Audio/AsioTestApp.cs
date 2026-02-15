@@ -34,6 +34,7 @@ namespace osu.Framework.Tests.Audio
             {
                 Console.WriteLine("Available audio devices:");
                 var devices = audioManager.AudioDeviceNames.ToList();
+
                 for (int i = 0; i < devices.Count; i++)
                 {
                     Console.WriteLine($"{i}: {devices[i]}");
@@ -42,7 +43,7 @@ namespace osu.Framework.Tests.Audio
                 var asioDevices = devices.Where(d => d.Contains("(ASIO)")).ToList();
                 Console.WriteLine($"\nFound {asioDevices.Count} ASIO devices:");
 
-                foreach (var device in asioDevices)
+                foreach (string? device in asioDevices)
                 {
                     Console.WriteLine($"  - {device}");
                 }
@@ -54,7 +55,7 @@ namespace osu.Framework.Tests.Audio
                 }
 
                 // Test switching to first ASIO device
-                var testDevice = asioDevices.First();
+                string? testDevice = asioDevices.First();
                 Console.WriteLine($"\nTesting ASIO device: {testDevice}");
 
                 audioManager.AudioDevice.Value = testDevice;

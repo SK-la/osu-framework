@@ -311,7 +311,7 @@ namespace osu.Framework.Threading
                             }
                             else
                             {
-                                Logger.Log($"无法找到ASIO设备: {deviceName}", name: "audio", level: LogLevel.Error);
+                                Logger.Log($"无法找到ASIO设备: {deviceName}, Mode: {mode}", name: "audio", level: LogLevel.Error);
                                 return false;
                             }
                         }
@@ -687,8 +687,8 @@ namespace osu.Framework.Threading
             // 使用来自AudioManager的统一采样率和缓冲区大小
             if (Manager != null)
             {
-                preferredSampleRate = Manager.SAMPLE_RATE.Value;
-                int bufferSize = Manager.ASIO_BUFFER_SIZE.Value;
+                preferredSampleRate = Manager.SampleRate.Value == 0 ? preferredSampleRate : Manager.SampleRate.Value;
+                int bufferSize = Manager.AsioBufferSize.Value;
 
                 // 验证当前设备是否已在运行，如果是则先停止
                 if (AsioDeviceManager.IsDeviceRunning())
@@ -718,7 +718,7 @@ namespace osu.Framework.Threading
                 }
 
                 int outputChannels = Math.Max(1, deviceInfo.Value.Outputs);
-                int inputChannels = Math.Max(0, deviceInfo.Value.Inputs);
+                // int inputChannels = Math.Max(0, deviceInfo.Value.Inputs);
 
                 // 验证设备信息
                 if (outputChannels < 2)
@@ -898,8 +898,6 @@ namespace osu.Framework.Threading
             }
         }
 
-
-
         #endregion
 
         /// <summary>
@@ -918,7 +916,7 @@ namespace osu.Framework.Threading
             }
 
             // 检查是否为ASIO设备
-            string suffix = $" ({type_asio})";
+            const string suffix = $" ({type_asio})";
 
             if (selection.EndsWith(suffix, StringComparison.Ordinal))
             {

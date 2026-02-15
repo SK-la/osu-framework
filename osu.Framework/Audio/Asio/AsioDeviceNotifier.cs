@@ -1,3 +1,6 @@
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// See the LICENCE file in the repository root for full licence text.
+
 using System;
 using System.Runtime.InteropServices;
 
@@ -9,8 +12,8 @@ namespace osu.Framework.Audio.Asio
     {
         public static event Action? DeviceChanged;
 
-        private static IMMNotificationClientImpl? client;
-        private static IMMDeviceEnumerator? enumerator;
+        private static ImmNotificationClientImpl? client;
+        private static IMmDeviceEnumerator? enumerator;
 
         public static void Start()
         {
@@ -18,9 +21,9 @@ namespace osu.Framework.Audio.Asio
 
             try
             {
-                enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
-                client = new IMMNotificationClientImpl();
-                client.DeviceChanged += () => DeviceChanged?.Invoke();
+                enumerator = (IMmDeviceEnumerator)new MMDeviceEnumerator();
+                client = new ImmNotificationClientImpl();
+
                 try
                 {
                     // RegisterEndpointNotificationCallback returns an HRESULT; ignore non-zero gracefully
@@ -30,7 +33,6 @@ namespace osu.Framework.Audio.Asio
                 {
                     // swallow registry failures and stop notifier to allow fallback polling
                     Stop();
-                    return;
                 }
             }
             catch
@@ -42,14 +44,14 @@ namespace osu.Framework.Audio.Asio
 
         public static void Stop()
         {
-                try
+            try
+            {
+                if (enumerator != null && client != null)
                 {
-                    if (enumerator != null && client != null)
-                    {
-                        _ = enumerator.UnregisterEndpointNotificationCallback(client);
-                    }
+                    _ = enumerator.UnregisterEndpointNotificationCallback(client);
                 }
-                catch { }
+            }
+            catch { }
             finally
             {
                 client = null;
@@ -57,10 +59,8 @@ namespace osu.Framework.Audio.Asio
             }
         }
 
-        private class IMMNotificationClientImpl : IMMNotificationClient
+        private class ImmNotificationClientImpl : IMmNotificationClient
         {
-            public event Action? DeviceChanged;
-
             public void OnDeviceStateChanged(string pwstrDeviceId, int dwNewState)
             {
                 DeviceChanged?.Invoke();
@@ -81,7 +81,7 @@ namespace osu.Framework.Audio.Asio
                 DeviceChanged?.Invoke();
             }
 
-            public void OnPropertyValueChanged(string pwstrDeviceId, PROPERTYKEY key)
+            public void OnPropertyValueChanged(string pwstrDeviceId, PropertyKey key)
             {
                 DeviceChanged?.Invoke();
             }
@@ -90,31 +90,38 @@ namespace osu.Framework.Audio.Asio
         #region COM interop
 
         [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
-        private class MMDeviceEnumerator { }
+        private class MMDeviceEnumerator
+        {
+        }
 
-        private enum EDataFlow { eRender = 0, eCapture = 1, eAll = 2 }
-        private enum ERole { eConsole = 0, eMultimedia = 1, eCommunications = 2 }
+        private enum EDataFlow { ERender = 0, ECapture = 1, EAll = 2 }
+
+        private enum ERole { EConsole = 0, EMultimedia = 1, ECommunications = 2 }
 
         [StructLayout(LayoutKind.Sequential)]
-        private struct PROPERTYKEY { public Guid fmtid; public int pid; }
+        private struct PropertyKey
+        {
+            public Guid fmtID;
+            public int pid;
+        }
 
         [Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-        private interface IMMDeviceEnumerator
+        private interface IMmDeviceEnumerator
         {
             int NotImpl1();
             int NotImpl2();
-            int RegisterEndpointNotificationCallback(IMMNotificationClient client);
-            int UnregisterEndpointNotificationCallback(IMMNotificationClient client);
+            int RegisterEndpointNotificationCallback(IMmNotificationClient client);
+            int UnregisterEndpointNotificationCallback(IMmNotificationClient client);
         }
 
         [Guid("7991EEC9-7E89-4D85-8390-6C703CEC60C0"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-        private interface IMMNotificationClient
+        private interface IMmNotificationClient
         {
             void OnDeviceStateChanged([MarshalAs(UnmanagedType.LPWStr)] string pwstrDeviceId, int dwNewState);
             void OnDeviceAdded([MarshalAs(UnmanagedType.LPWStr)] string pwstrDeviceId);
             void OnDeviceRemoved([MarshalAs(UnmanagedType.LPWStr)] string pwstrDeviceId);
             void OnDefaultDeviceChanged(EDataFlow flow, ERole role, [MarshalAs(UnmanagedType.LPWStr)] string pwstrDefaultDeviceId);
-            void OnPropertyValueChanged([MarshalAs(UnmanagedType.LPWStr)] string pwstrDeviceId, PROPERTYKEY key);
+            void OnPropertyValueChanged([MarshalAs(UnmanagedType.LPWStr)] string pwstrDeviceId, PropertyKey key);
         }
 
         #endregion

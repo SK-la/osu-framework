@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using ManagedBass;
 using ManagedBass.Asio;
 using osu.Framework.Logging;
@@ -57,13 +58,15 @@ namespace osu.Framework.Audio.Asio
         /// 当ASIO设备初始化时，由音频线程设置。
         /// </summary>
         private static int globalMixerHandle;
+
         // 自动重新初始化监控
-        private static System.Threading.CancellationTokenSource? reinitMonitorCts;
+        private static CancellationTokenSource? reinitMonitorCts;
         private static int? lastInitializedDeviceIndex;
         private static double? lastRequestedSampleRate;
         private static int? lastRequestedBufferSize;
+
         // 用于防止重复的自动重新初始化同时进行
-        private static int reinitInProgress = 0;
+        private static int reinitInProgress;
         private static Action? notifierHandler;
 
         /// <summary>
@@ -116,6 +119,7 @@ namespace osu.Framework.Audio.Asio
         /// </summary>
         /// <param name="deviceIndex">设备索引。</param>
         /// <param name="flags">初始化标志。</param>
+        /// <param name="allowRetries"></param>
         /// <returns>如果初始化成功则为true，否则为false。</returns>
         private static bool tryInitializeDevice(int deviceIndex, AsioInitFlags flags, bool allowRetries = true)
         {
@@ -284,7 +288,7 @@ namespace osu.Framework.Audio.Asio
 
                         if (tryInitializeDevice(deviceIndex, flags, allowRetries: false))
                         {
-                            initialized = true;
+                            // initialized = true;
                             break;
                         }
 
@@ -359,7 +363,7 @@ namespace osu.Framework.Audio.Asio
                     }
                     else
                     {
-                        Logger.Log($"ASIO device did not report a usable rate; failing initialization", LoggingTarget.Runtime, LogLevel.Error);
+                        Logger.Log("ASIO device did not report a usable rate; failing initialization", LoggingTarget.Runtime, LogLevel.Error);
                         FreeDevice();
                         return false;
                     }
@@ -375,25 +379,24 @@ namespace osu.Framework.Audio.Asio
                 lastInitializedDeviceIndex = deviceIndex;
                 lastRequestedSampleRate = sampleRateToTry ?? successfulRate;
                 lastRequestedBufferSize = bufferSize;
+
                 // 先尝试使用 CoreAudio 通知（MMDevice）进行事件驱动的变更检测
                 try
                 {
                     notifierHandler = () =>
                     {
                         // 确保不会并发执行多个重新初始化
-                        if (System.Threading.Interlocked.CompareExchange(ref reinitInProgress, 1, 0) != 0)
+                        if (Interlocked.CompareExchange(ref reinitInProgress, 1, 0) != 0)
                             return;
 
-                        System.Threading.Tasks.Task.Run(() =>
+                        Task.Run(() =>
                         {
                             try
                             {
                                 Logger.Log("ASIO device notification received from system, triggering reinit.", LoggingTarget.Runtime, LogLevel.Important);
                                 FreeDevice();
-                                if (lastInitializedDeviceIndex.HasValue)
-                                {
-                                    InitializeDevice(lastInitializedDeviceIndex.Value, lastRequestedSampleRate, lastRequestedBufferSize);
-                                }
+
+                                InitializeDevice(lastInitializedDeviceIndex.Value, lastRequestedSampleRate, lastRequestedBufferSize);
                             }
                             catch (Exception ex)
                             {
@@ -401,7 +404,7 @@ namespace osu.Framework.Audio.Asio
                             }
                             finally
                             {
-                                System.Threading.Interlocked.Exchange(ref reinitInProgress, 0);
+                                Interlocked.Exchange(ref reinitInProgress, 0);
                             }
                         });
                     };
@@ -730,6 +733,7 @@ namespace osu.Framework.Audio.Asio
                 AsioProcedure asioCallback = asioProcedure;
 
                 int outputs = Math.Max(0, info.Outputs);
+
                 if (outputs < 2)
                 {
                     Logger.Log($"Not enough ASIO outputs ({outputs}) to configure stereo", LoggingTarget.Runtime, LogLevel.Error);
@@ -817,7 +821,7 @@ namespace osu.Framework.Audio.Asio
                     {
                         foreach (ProcessModule mod in proc.Modules)
                         {
-                            if (mod.ModuleName?.Equals("bassasio.dll", StringComparison.OrdinalIgnoreCase) == true)
+                            if (mod.ModuleName.Equals("bassasio.dll", StringComparison.OrdinalIgnoreCase))
                             {
                                 result.Add((proc.Id, proc.ProcessName));
                                 break;
@@ -844,12 +848,13 @@ namespace osu.Framework.Audio.Asio
             {
                 stopReinitMonitor();
 
-                reinitMonitorCts = new System.Threading.CancellationTokenSource();
+                reinitMonitorCts = new CancellationTokenSource();
                 var token = reinitMonitorCts.Token;
 
-                System.Threading.Tasks.Task.Run(() =>
+                Task.Run(() =>
                 {
                     AsioInfo lastInfo = default;
+
                     try
                     {
                         BassAsio.GetInfo(out lastInfo);
@@ -857,7 +862,9 @@ namespace osu.Framework.Audio.Asio
                     catch { }
 
                     double lastRate = 0;
-                    try { lastRate = BassAsio.Rate; } catch { }
+
+                    try { lastRate = BassAsio.Rate; }
+                    catch { }
 
                     while (!token.IsCancellationRequested)
                     {
@@ -865,14 +872,19 @@ namespace osu.Framework.Audio.Asio
                         {
                             // 检查采样率或通道数变化
                             AsioInfo info;
+
                             if (BassAsio.GetInfo(out info))
                             {
                                 double rate = 0;
-                                try { rate = BassAsio.Rate; } catch { }
+
+                                try { rate = BassAsio.Rate; }
+                                catch { }
 
                                 if (info.Inputs != lastInfo.Inputs || info.Outputs != lastInfo.Outputs || Math.Abs(rate - lastRate) > 0.5)
                                 {
-                                    Logger.Log($"ASIO device parameters changed (inputs:{lastInfo.Inputs}->{info.Inputs}, outputs:{lastInfo.Outputs}->{info.Outputs}, rate:{lastRate}->{rate}). Triggering reinit.", LoggingTarget.Runtime, LogLevel.Important);
+                                    Logger.Log(
+                                        $"ASIO device parameters changed (inputs:{lastInfo.Inputs}->{info.Inputs}, outputs:{lastInfo.Outputs}->{info.Outputs}, rate:{lastRate}->{rate}). Triggering reinit.",
+                                        LoggingTarget.Runtime, LogLevel.Important);
 
                                     // 执行重新初始化：释放并使用原参数重新初始化
                                     try
@@ -900,7 +912,7 @@ namespace osu.Framework.Audio.Asio
                             // 忽略单次检测错误
                         }
 
-                        System.Threading.Thread.Sleep(checkIntervalMs);
+                        Thread.Sleep(checkIntervalMs);
                     }
                 }, token);
             }

@@ -35,7 +35,7 @@ namespace osu.Framework.Tests.Audio
                     Assert.Ignore("No ASIO devices available for testing");
 
                 // Test switching to each ASIO device
-                foreach (var asioDevice in asioDevices)
+                foreach (string? asioDevice in asioDevices)
                 {
                     TestContext.WriteLine($"Testing switch to ASIO device: {asioDevice}");
 
