@@ -276,7 +276,10 @@ namespace osu.Framework.Graphics.Rendering.Deferred
         private void processEvent(in CopyBackbufferRegionEvent e)
         {
             var frameBuffer = context.Dereference<DeferredFrameBuffer>(e.FrameBuffer);
-            context.Renderer.VeldridDevice.CopyBackbufferRegionToFrameBuffer(graphics.Commands, frameBuffer, e.ScreenRect);
+
+            // Submit draws targeting the swapchain so far before copying from it.
+            graphics.EndAndBeginPreservingState();
+            context.Renderer.VeldridDevice.CopyBackbufferRegionToFrameBufferSynchronously(frameBuffer, e.ScreenRect);
         }
 
         private void processEvent(in FlushEvent e)
