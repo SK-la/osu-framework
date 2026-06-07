@@ -75,6 +75,7 @@ namespace osu.Framework.Graphics.Veldrid
 
         private IFrameBuffer? backbufferRegionSnapshot;
         private Vector2I backbufferRegionSnapshotSize = Vector2I.One;
+        private VeldridFrameBuffer? passBreakFrameBuffer;
 
         public override bool SupportsBackbufferRegionCopy
             => SurfaceType == GraphicsSurfaceType.Direct3D11;
@@ -97,8 +98,17 @@ namespace osu.Framework.Graphics.Veldrid
                 backbufferRegionSnapshotSize = size;
             }
 
-            graphicsPipeline.EndAndBeginPreservingState();
-            veldridDevice.CopyBackbufferRegionToFrameBufferSynchronously((VeldridFrameBuffer)backbufferRegionSnapshot, screenRect);
+            passBreakFrameBuffer ??= (VeldridFrameBuffer)CreateFrameBuffer();
+
+            if (passBreakFrameBuffer.Size != Vector2.One)
+                passBreakFrameBuffer.Size = Vector2.One;
+
+            var snapshot = graphicsPipeline.CreateSnapshot();
+
+            // End the swapchain render pass without submitting the command list (mid-frame End() causes flicker/tearing).
+            graphicsPipeline.SetFrameBuffer(passBreakFrameBuffer);
+            veldridDevice.CopyBackbufferRegionToFrameBuffer(graphicsPipeline.Commands, (VeldridFrameBuffer)backbufferRegionSnapshot, screenRect);
+            graphicsPipeline.RestoreSnapshot(snapshot);
 
             return backbufferRegionSnapshot;
         }
