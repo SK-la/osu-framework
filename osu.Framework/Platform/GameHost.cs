@@ -505,7 +505,9 @@ namespace osu.Framework.Platform
             if (Window.WindowState == WindowState.Minimised)
                 return;
 
-            Renderer.AllowTearing = windowMode.Value == WindowMode.Fullscreen;
+            // Allow tearing in exclusive fullscreen and borderless so uncapped draw rates are not limited
+            // by the compositor. Windowed mode keeps tearing disabled to avoid visible artifacts at the window edge.
+            Renderer.AllowTearing = windowMode.Value is WindowMode.Fullscreen or WindowMode.Borderless;
 
             TripleBuffer<DrawNode>.Buffer buffer;
 
