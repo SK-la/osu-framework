@@ -8,6 +8,7 @@ using osu.Framework.Graphics;
 using osu.Framework.Input.Events;
 using osu.Framework.Input.StateChanges;
 using osu.Framework.Input.States;
+using osu.Framework.Logging;
 
 namespace osu.Framework.Input
 {
@@ -129,6 +130,13 @@ namespace osu.Framework.Input
                     handledBy = target;
                     break;
                 }
+            }
+
+            if (handledBy != null)
+            {
+                Logger.Log(SuppressLoggingEventInformation(handledBy)
+                    ? $"{e.GetType().Name} handled by {handledBy}."
+                    : $"{e} handled by {handledBy}.", LoggingTarget.Runtime, LogLevel.Debug);
             }
 
             return handledBy;

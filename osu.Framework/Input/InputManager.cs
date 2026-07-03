@@ -33,9 +33,8 @@ namespace osu.Framework.Input
     public abstract partial class InputManager : Container, IInputStateChangeHandler, IFocusManager
     {
         /// <summary>
-        /// [Ez] Wall-clock timestamp (from <see cref="System.Diagnostics.Stopwatch.GetTimestamp()"/>) of the most recently
-        /// processed keyboard input event. Used for sub-frame timing correction in judgment.
-        /// Set during input processing on the UpdateThread; read by judgment code synchronously within the same frame.
+        /// [Ez] Wall-clock timestamp (from <see cref="Stopwatch.GetTimestamp()"/>) of the most recently
+        /// processed keyboard or mouse input event. Used for sub-frame timing correction.
         /// </summary>
         public static long EzSubFrameTimestamp;
 
