@@ -9,6 +9,10 @@ namespace osu.Framework.Audio.EzLatency
 {
 #nullable disable
 
+    /// <summary>
+    /// Records input/judge/playback timing data faithfully without filtering or discarding.
+    /// Lock-free single-slot design — never blocks the input or audio thread.
+    /// </summary>
     public class EzLatencyAnalyzer
     {
         private readonly Stopwatch stopwatch;
@@ -53,7 +57,7 @@ namespace osu.Framework.Audio.EzLatency
             if (!Enabled) return;
 
             currentInputData.PlaybackTime = playbackTime;
-            tryGenerateCompleteRecord();
+            tryEmitRecord();
         }
 
         public void RecordHardwareData(double driverTime, double outputHardwareTime, double inputHardwareTime, double latencyDifference)
@@ -68,10 +72,10 @@ namespace osu.Framework.Audio.EzLatency
                 LatencyDifference = latencyDifference
             };
 
-            tryGenerateCompleteRecord();
+            tryEmitRecord();
         }
 
-        private void tryGenerateCompleteRecord()
+        private void tryEmitRecord()
         {
             if (!currentInputData.IsValid)
             {
@@ -79,58 +83,63 @@ namespace osu.Framework.Audio.EzLatency
                 return;
             }
 
-            // If we have hardware data, emit a full record. Otherwise emit a best-effort record without hw.
+            // Snapshot the raw data before clearing state (prevents re-entrancy without discarding).
+            var inputData = currentInputData;
+            var hwData = currentHardwareData;
+
+            double measuredMs = inputData.PlaybackTime > 0
+                ? inputData.PlaybackTime - inputData.InputTime
+                : inputData.JudgeTime > 0
+                    ? inputData.JudgeTime - inputData.InputTime
+                    : 0;
+
             var record = new EzLatencyRecord
             {
                 Timestamp = DateTimeOffset.Now,
-                InputTime = currentInputData.InputTime,
-                JudgeTime = currentInputData.JudgeTime,
-                PlaybackTime = currentInputData.PlaybackTime,
-                DriverTime = currentHardwareData.DriverTime,
-                OutputHardwareTime = currentHardwareData.OutputHardwareTime,
-                InputHardwareTime = currentHardwareData.InputHardwareTime,
-                LatencyDifference = currentHardwareData.LatencyDifference,
-                // MeasuredMs: prefer Playback - Input when available, otherwise use Judge - Input as a best-effort.
-                MeasuredMs = currentInputData.PlaybackTime > 0
-                    ? currentInputData.PlaybackTime - currentInputData.InputTime
-                    : currentInputData.JudgeTime > 0
-                        ? currentInputData.JudgeTime - currentInputData.InputTime
-                        : 0,
-                Note = currentHardwareData.IsValid ? "complete-latency-measurement" : "best-effort-no-hw",
-                InputData = currentInputData,
-                HardwareData = currentHardwareData
+                InputTime = inputData.InputTime,
+                JudgeTime = inputData.JudgeTime,
+                PlaybackTime = inputData.PlaybackTime,
+                DriverTime = hwData.DriverTime,
+                OutputHardwareTime = hwData.OutputHardwareTime,
+                InputHardwareTime = hwData.InputHardwareTime,
+                LatencyDifference = hwData.LatencyDifference,
+                MeasuredMs = measuredMs,
+                Note = hwData.IsValid ? "complete-latency-measurement" : "best-effort-no-hw",
+                InputData = inputData,
+                HardwareData = hwData
             };
+
+            // Reset state before dispatching so re-entrant calls (from Logger or callback) start fresh.
+            ClearCurrentData();
 
             try
             {
                 OnNewRecord?.Invoke(record);
                 EzLatencyService.Instance.PushRecord(record);
                 Logger.Log(
-                    currentHardwareData.IsValid
+                    hwData.IsValid
                         ? $"EzLatency 完整记录已生成: Input→Playback={record.PlaybackTime - record.InputTime:F2}ms"
-                        : $"EzLatency 最佳尝试记录（无硬件时间戳）: Input→Playback={record.PlaybackTime - record.InputTime:F2}ms", LoggingTarget.Runtime, LogLevel.Debug);
+                        : $"EzLatency 最佳尝试记录（无硬件时间戳）: Input→Playback={record.PlaybackTime - record.InputTime:F2}ms",
+                    LoggingTarget.Runtime, LogLevel.Debug);
             }
             catch (Exception ex)
             {
-                Logger.Log($"EzLatencyAnalyzer: tryGenerateCompleteRecord failed: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
+                Logger.Log($"EzLatencyAnalyzer: tryEmitRecord failed: {ex.Message}", LoggingTarget.Runtime, LogLevel.Error);
             }
-
-            ClearCurrentData();
         }
 
         public double GetCurrentTimestamp() => stopwatch.Elapsed.TotalMilliseconds;
 
         private void checkTimeout()
         {
-            if (recordStartTime > 0)
-            {
-                double elapsed = stopwatch.Elapsed.TotalMilliseconds - recordStartTime;
+            if (recordStartTime <= 0)
+                return;
 
-                if (elapsed > timeout_ms)
-                {
-                    Logger.Log($"EzLatency 数据收集超时 ({elapsed:F0}ms)，清除旧数据", LoggingTarget.Runtime, LogLevel.Debug);
-                    ClearCurrentData();
-                }
+            double elapsed = stopwatch.Elapsed.TotalMilliseconds - recordStartTime;
+
+            if (elapsed > timeout_ms)
+            {
+                ClearCurrentData();
             }
         }
 
