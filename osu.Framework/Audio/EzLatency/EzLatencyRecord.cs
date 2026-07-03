@@ -13,11 +13,6 @@ namespace osu.Framework.Audio.EzLatency
         public double MeasuredMs { get; set; }
         public string Note { get; set; }
 
-        /// <summary>
-        /// Correlation ID linking this record back to the originating input event.
-        /// </summary>
-        public Guid CorrelationId { get; set; }
-
         public double InputTime { get; set; }
         public double JudgeTime { get; set; }
         public double PlaybackTime { get; set; }
