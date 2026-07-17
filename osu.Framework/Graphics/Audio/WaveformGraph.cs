@@ -182,6 +182,12 @@ namespace osu.Framework.Graphics.Audio
             if (requiredPointCount == resampledPointCount && cancelSource?.IsCancellationRequested != false)
                 return;
 
+            if (requiredPointCount == 0)
+            {
+                lastGeneratedDrawSize = DrawSize;
+                return;
+            }
+
             cancelGeneration();
 
             lastGeneratedDrawSize = DrawSize;
