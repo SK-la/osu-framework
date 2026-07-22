@@ -131,6 +131,25 @@ namespace osu.Framework.Platform.SDL2
             JoystickAxisChanged?.Invoke(axisSource, clamped);
         }
 
+        private void enqueueJoystickDeviceAxisInput(int instanceId, int axisIndex, short axisValue)
+        {
+            float clamped = Math.Clamp((float)axisValue / short.MaxValue, -1f, 1f);
+
+            string guid = string.Empty;
+            string name = string.Empty;
+
+            if (controllers.TryGetValue(instanceId, out var bindings) && bindings.JoystickHandle != IntPtr.Zero)
+            {
+                guid = SDL_JoystickGetGUID(bindings.JoystickHandle).ToString("N");
+                name = SDL_JoystickName(bindings.JoystickHandle) ?? string.Empty;
+            }
+
+            if (string.IsNullOrEmpty(guid))
+                guid = $"id:{instanceId}";
+
+            JoystickDeviceAxisChanged?.Invoke(new JoystickDeviceAxis((uint)instanceId, guid, name, axisIndex, clamped));
+        }
+
         private void enqueueJoystickButtonInput(JoystickButton button, bool isPressed)
         {
             if (isPressed)
@@ -302,8 +321,11 @@ namespace osu.Framework.Platform.SDL2
             }
         }
 
-        private void handleControllerAxisEvent(SDL_ControllerAxisEvent evtCaxis) =>
+        private void handleControllerAxisEvent(SDL_ControllerAxisEvent evtCaxis)
+        {
             enqueueJoystickAxisInput(((SDL_GameControllerAxis)evtCaxis.axis).ToJoystickAxisSource(), evtCaxis.axisValue);
+            enqueueJoystickDeviceAxisInput(evtCaxis.which, evtCaxis.axis, evtCaxis.axisValue);
+        }
 
         private void addJoystick(int which)
         {
@@ -393,10 +415,11 @@ namespace osu.Framework.Platform.SDL2
 
         private void handleJoyAxisEvent(SDL_JoyAxisEvent evtJaxis)
         {
-            // if this axis exists in the controller bindings, skip it
+            // if this axis exists in the controller bindings, skip joy path (gamepad path will emit device-aware)
             if (controllers.TryGetValue(evtJaxis.which, out var state) && state.IsJoystickAxisBound(evtJaxis.axis))
                 return;
 
+            enqueueJoystickDeviceAxisInput(evtJaxis.which, evtJaxis.axis, evtJaxis.axisValue);
             enqueueJoystickAxisInput(JoystickAxisSource.Axis1 + evtJaxis.axis, evtJaxis.axisValue);
         }
 
@@ -639,6 +662,11 @@ namespace osu.Framework.Platform.SDL2
         /// Invoked when a joystick axis changes.
         /// </summary>
         public event Action<JoystickAxisSource, float>? JoystickAxisChanged;
+
+        /// <summary>
+        /// Invoked when a joystick axis changes, including device identity (not merged across devices).
+        /// </summary>
+        public event Action<JoystickDeviceAxis>? JoystickDeviceAxisChanged;
 
         /// <summary>
         /// Invoked when the user presses a button on a joystick.

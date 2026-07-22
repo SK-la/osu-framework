@@ -15,6 +15,12 @@ namespace osu.Framework.Platform
         event Action<JoystickButton> JoystickButtonDown;
         event Action<JoystickButton> JoystickButtonUp;
         event Action<JoystickAxisSource, float> JoystickAxisChanged;
+
+        /// <summary>
+        /// 按设备区分的轴变化（原始值，不经全局轴合并）。用于多转盘/多手柄绑定。
+        /// </summary>
+        event Action<JoystickDeviceAxis> JoystickDeviceAxisChanged;
+
         event Action<Touch> TouchDown;
         event Action<Touch> TouchUp;
         event Action<Vector2> MouseMove;
