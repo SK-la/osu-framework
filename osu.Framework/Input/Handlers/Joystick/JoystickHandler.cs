@@ -20,6 +20,11 @@ namespace osu.Framework.Input.Handlers.Joystick
             Precision = 0.005f,
         };
 
+        /// <summary>
+        /// 按设备区分的轴变化（原始值，未经本 Handler 死区重标定）。
+        /// </summary>
+        public event Action<JoystickDeviceAxis>? DeviceAxisChanged;
+
         public override string Description => "Joystick / Gamepad";
 
         public override bool IsActive => true;
@@ -39,12 +44,14 @@ namespace osu.Framework.Input.Handlers.Joystick
                     window.JoystickButtonDown += enqueueJoystickButtonDown;
                     window.JoystickButtonUp += enqueueJoystickButtonUp;
                     window.JoystickAxisChanged += enqueueJoystickAxisChanged;
+                    window.JoystickDeviceAxisChanged += enqueueJoystickDeviceAxisChanged;
                 }
                 else
                 {
                     window.JoystickButtonDown -= enqueueJoystickButtonDown;
                     window.JoystickButtonUp -= enqueueJoystickButtonUp;
                     window.JoystickAxisChanged -= enqueueJoystickAxisChanged;
+                    window.JoystickDeviceAxisChanged -= enqueueJoystickDeviceAxisChanged;
                 }
             }, true);
 
@@ -67,6 +74,8 @@ namespace osu.Framework.Input.Handlers.Joystick
         /// </summary>
         private void enqueueJoystickAxisChanged(JoystickAxisSource source, float value) =>
             enqueueJoystickEvent(new JoystickAxisInput(new JoystickAxis(source, RescaleByDeadzone(value, DeadzoneThreshold.Value))));
+
+        private void enqueueJoystickDeviceAxisChanged(JoystickDeviceAxis axis) => DeviceAxisChanged?.Invoke(axis);
 
         internal static float RescaleByDeadzone(float axisValue, float deadzoneThreshold)
         {

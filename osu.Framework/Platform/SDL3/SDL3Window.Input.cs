@@ -145,6 +145,30 @@ namespace osu.Framework.Platform.SDL3
             JoystickAxisChanged?.Invoke(axisSource, clamped);
         }
 
+        private void enqueueJoystickDeviceAxisInput(SDL_JoystickID instanceId, int axisIndex, short axisValue)
+        {
+            float clamped = Math.Clamp((float)axisValue / short.MaxValue, -1f, 1f);
+            uint id = (uint)instanceId;
+            string guid = formatJoystickGuid(instanceId);
+            if (string.IsNullOrEmpty(guid))
+                guid = $"id:{id}";
+
+            string name = SDL_GetJoystickNameForID(instanceId) ?? string.Empty;
+            JoystickDeviceAxisChanged?.Invoke(new JoystickDeviceAxis(id, guid, name, axisIndex, clamped));
+        }
+
+        private static string formatJoystickGuid(SDL_JoystickID instanceId)
+        {
+            SDL_GUID guid = SDL_GetJoystickGUIDForID(instanceId);
+            Span<byte> buffer = stackalloc byte[64];
+
+            fixed (byte* ptr = buffer)
+            {
+                SDL_GUIDToString(guid, ptr, buffer.Length);
+                return System.Text.Encoding.UTF8.GetString(buffer).TrimEnd('\0');
+            }
+        }
+
         private void enqueueJoystickButtonInput(JoystickButton button, bool isPressed)
         {
             if (isPressed)
@@ -351,8 +375,11 @@ namespace osu.Framework.Platform.SDL3
             }
         }
 
-        private void handleControllerAxisEvent(SDL_GamepadAxisEvent evtCaxis) =>
+        private void handleControllerAxisEvent(SDL_GamepadAxisEvent evtCaxis)
+        {
             enqueueJoystickAxisInput(evtCaxis.Axis.ToJoystickAxisSource(), evtCaxis.value);
+            enqueueJoystickDeviceAxisInput(evtCaxis.which, (int)evtCaxis.Axis, evtCaxis.value);
+        }
 
         private void addJoystick(SDL_JoystickID instanceID)
         {
@@ -443,11 +470,14 @@ namespace osu.Framework.Platform.SDL3
 
         private void handleJoyAxisEvent(SDL_JoyAxisEvent evtJaxis)
         {
-            // if this axis exists in the controller bindings, skip it
+            // if this axis exists in the controller bindings, skip joy path (gamepad path will emit device-aware)
             if (controllers.TryGetValue(evtJaxis.which, out var state) && state.IsJoystickAxisBound(evtJaxis.axis))
                 return;
 
-            enqueueJoystickAxisInput(JoystickAxisSource.Axis1 + evtJaxis.axis, evtJaxis.axis);
+            enqueueJoystickDeviceAxisInput(evtJaxis.which, evtJaxis.axis, evtJaxis.value);
+
+            // SDL3: must pass .value (axis magnitude), not .axis (index). SDL2 already used axisValue.
+            enqueueJoystickAxisInput(JoystickAxisSource.Axis1 + evtJaxis.axis, evtJaxis.value);
         }
 
         private ulong lastPreciseScroll;
@@ -783,6 +813,11 @@ namespace osu.Framework.Platform.SDL3
         /// Invoked when a joystick axis changes.
         /// </summary>
         public event Action<JoystickAxisSource, float>? JoystickAxisChanged;
+
+        /// <summary>
+        /// Invoked when a joystick axis changes, including device identity (not merged across devices).
+        /// </summary>
+        public event Action<JoystickDeviceAxis>? JoystickDeviceAxisChanged;
 
         /// <summary>
         /// Invoked when the user presses a button on a joystick.
