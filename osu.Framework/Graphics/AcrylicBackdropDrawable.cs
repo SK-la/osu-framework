@@ -42,7 +42,7 @@ namespace osu.Framework.Graphics
     public partial class AcrylicBackdropDrawable : Drawable, ITexturedShaderDrawable
     {
         // 两个效果缓冲用于横/纵两趟高斯模糊的乒乓。
-        private readonly BufferedDrawNodeSharedData sharedData = new BufferedDrawNodeSharedData(2, null, pixelSnapping: true, clipToRootNode: false);
+        private readonly BufferedDrawNodeSharedData sharedData = new BufferedDrawNodeSharedData(2, TexturePixelFormat.R8G8B8A8Float, pixelSnapping: true, clipToRootNode: false);
 
         private bool effectEnabled = true;
 

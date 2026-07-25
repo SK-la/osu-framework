@@ -31,7 +31,7 @@ namespace osu.Framework.Graphics
     /// </remarks>
     public partial class BackdropBlurDrawable : Drawable, IBufferedDrawable
     {
-        private readonly BufferedDrawNodeSharedData sharedData = new BufferedDrawNodeSharedData(2, null, pixelSnapping: true, clipToRootNode: true);
+        private readonly BufferedDrawNodeSharedData sharedData = new BufferedDrawNodeSharedData(2, TexturePixelFormat.R8G8B8A8Float, pixelSnapping: true, clipToRootNode: true);
 
         // 复用的源 draw node 列表，避免每帧分配。
         private readonly List<Drawable> resolvedSources = new List<Drawable>();
