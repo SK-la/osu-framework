@@ -3,27 +3,46 @@ name: Pack and publish NuGet
 on:
   push:
     tags:
-      - '*-ez2lazer'
+      # 仅 Ez 发布 tag；上游 ppy tag（如 2026.724.0）不会匹配
+      - '*.*.*-ez2lazer'
   workflow_dispatch:
     inputs:
       version:
-        description: 'NuGet 包版本（与 tag 一致，例如 2026.524.4-ez2lazer）'
+        description: 'NuGet 包版本（与已存在的 tag 一致，例如 2026.524.4-ez2lazer）'
         required: true
         type: string
 
 permissions:
-  contents: read
-  id-token: write
+  contents: write # GitHub Release
+  id-token: write # NuGet Trusted Publishing
 
 jobs:
   pack-framework:
     name: Pack (ez2lazer.Framework)
+    # 仅本人推送的 tag / 手动触发，避免他人或异常推送误发
+    if: github.actor == 'SK-la'
     runs-on: windows-latest
     defaults:
       run:
         shell: powershell
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Guard tag pusher
+        shell: bash
+        run: |
+          echo "actor=${{ github.actor }} event=${{ github.event_name }} ref=${{ github.ref }}"
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "tag" ]; then
+            case "${{ github.ref_name }}" in
+              *.*.*-ez2lazer) ;;
+              *)
+                echo "::error::Tag '${{ github.ref_name }}' is not an Ez2Lazer release tag (expected *.*.*-ez2lazer)."
+                exit 1
+                ;;
+            esac
+          fi
 
       - name: Resolve package version
         id: version
@@ -64,6 +83,7 @@ jobs:
           user: SK_LA
 
       - name: Publish packages to nuget.org
+        id: nuget_publish
         run: |
           $version = '${{ steps.version.outputs.value }}'
           $apiKey = '${{ steps.nuget_login.outputs.NUGET_API_KEY }}'
@@ -84,3 +104,29 @@ jobs:
             exit 1
           }
           Write-Host "Published (Trusted Publishing): https://www.nuget.org/packages/ez2lazer.Framework/$version"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION='${{ steps.version.outputs.value }}'
+
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "Release $VERSION already exists, skip create."
+            exit 0
+          fi
+
+          if ! git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+            echo "::error::Tag '$VERSION' does not exist locally. Push the tag first (or use a version that matches an existing tag)."
+            exit 1
+          fi
+
+          # 正文使用 GitHub 自动生成的 Release notes（相对上一 Release 的提交/PR 摘要）
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --generate-notes \
+            --verify-tag
+
+          echo "Release: https://github.com/${{ github.repository }}/releases/tag/$VERSION"
