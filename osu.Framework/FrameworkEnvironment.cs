@@ -28,6 +28,14 @@ namespace osu.Framework
         /// </summary>
         public static bool AllowInsecureRequests { get; internal set; }
 
+        /// <summary>
+        /// [Ez] When true, log handled button / key-binding events at <see cref="Logging.LogLevel.Debug"/>.
+        /// Defaults to off: Debug builds set <see cref="Logging.Logger.Level"/> to Debug, and gameplay key spam
+        /// (string formatting + log I/O every press) significantly hurts performance.
+        /// Enable via environment variable <c>OSU_LOG_INPUT=1</c>, or set this property at runtime while debugging.
+        /// </summary>
+        public static bool LogHandledInputEvents { get; set; }
+
         static FrameworkEnvironment()
         {
             StartupExecutionMode = Enum.TryParse<ExecutionMode>(Environment.GetEnvironmentVariable("OSU_EXECUTION_MODE"), true, out var mode) ? mode : null;
@@ -52,6 +60,8 @@ namespace osu.Framework
 
             if (DebugUtils.IsDebugBuild)
                 AllowInsecureRequests = parseBool(Environment.GetEnvironmentVariable("OSU_INSECURE_REQUESTS")) ?? false;
+
+            LogHandledInputEvents = parseBool(Environment.GetEnvironmentVariable("OSU_LOG_INPUT")) ?? false;
 
             if (parseBool(Environment.GetEnvironmentVariable("OSU_SDL3")) is bool userSDL3Override)
                 UseSDL3 = userSDL3Override;

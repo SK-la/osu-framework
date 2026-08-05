@@ -132,7 +132,8 @@ namespace osu.Framework.Input
                 }
             }
 
-            if (handledBy != null)
+            // [Ez] Gated: Debug builds enable LogLevel.Debug globally; unconditional logging here tanks gameplay FPS.
+            if (handledBy != null && FrameworkEnvironment.LogHandledInputEvents)
             {
                 Logger.Log(SuppressLoggingEventInformation(handledBy)
                     ? $"{e.GetType().Name} handled by {handledBy}."

@@ -341,7 +341,8 @@ namespace osu.Framework.Input.Bindings
                 }
             }
 
-            if (handled != null)
+            // [Ez] Gated: see FrameworkEnvironment.LogHandledInputEvents.
+            if (handled != null && FrameworkEnvironment.LogHandledInputEvents)
                 Logger.Log($"Pressed ({pressed}) handled by {handled}.", LoggingTarget.Runtime, LogLevel.Debug);
 
             return handled;
