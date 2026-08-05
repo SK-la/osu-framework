@@ -149,13 +149,23 @@ namespace osu.Framework.Tests.Visual.Drawables
         [TestCase(1f / 4)]
         [TestCase(1f / 8)]
         [TestCase(1f / 16)]
-        [TestCase(0)]
         public void TestResolution(float resolution)
         {
             TestWaveform graph = null;
 
             AddStep("create waveform", () => waveformContainer.Child = graph = new TestWaveform(track, resolution) { Waveform = waveform });
             AddUntilStep("wait for load", () => graph.Regenerated);
+        }
+
+        [Test]
+        public void TestZeroResolutionSkipsRegeneration()
+        {
+            TestWaveform graph = null;
+
+            AddStep("create waveform", () => waveformContainer.Child = graph = new TestWaveform(track, 0) { Waveform = waveform });
+            // requiredPointCount is 0 when Resolution is 0, so WaveformGraph skips resampling and never fires OnWaveformRegenerated.
+            AddWaitStep("wait a few frames", 10);
+            AddAssert("did not regenerate", () => !graph.Regenerated);
         }
 
         [Test]
