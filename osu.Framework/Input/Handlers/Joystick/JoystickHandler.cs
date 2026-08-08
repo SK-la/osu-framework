@@ -2,8 +2,10 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Collections.Generic;
 using osu.Framework.Bindables;
 using osu.Framework.Input.StateChanges;
+using osu.Framework.Logging;
 using osu.Framework.Platform;
 using osu.Framework.Statistics;
 
@@ -65,9 +67,50 @@ namespace osu.Framework.Input.Handlers.Joystick
             statistic_total_events.Value++;
         }
 
-        private void enqueueJoystickButtonDown(JoystickButton button) => enqueueJoystickEvent(new JoystickButtonInput(button, true));
+        private void enqueueJoystickButtonDown(JoystickButton button)
+        {
+            if (!isRepresentable(button))
+                return;
 
-        private void enqueueJoystickButtonUp(JoystickButton button) => enqueueJoystickEvent(new JoystickButtonInput(button, false));
+            enqueueJoystickEvent(new JoystickButtonInput(button, true));
+        }
+
+        private void enqueueJoystickButtonUp(JoystickButton button)
+        {
+            if (!isRepresentable(button))
+                return;
+
+            enqueueJoystickEvent(new JoystickButtonInput(button, false));
+        }
+
+        private static readonly HashSet<JoystickButton> unrepresentable_buttons = new HashSet<JoystickButton>();
+
+        /// <summary>
+        /// Whether a button reported by SDL can be represented by <see cref="JoystickButton"/>.
+        /// </summary>
+        /// <remarks>
+        /// SDL reports a raw per-device button index, and a device with a malformed HID report descriptor can claim
+        /// hundreds of buttons with the padding bits permanently set. Those indices have no <see cref="JoystickButton"/>
+        /// representation so they can never be bound, but if let through they still occupy the pressed key set for the
+        /// remainder of the session and break every exactly-matched key combination.
+        /// </remarks>
+        private static bool isRepresentable(JoystickButton button)
+        {
+            // axis pseudo-buttons are synthesised internally and always in range.
+            if (button >= JoystickButton.FirstAxisNegative)
+                return true;
+
+            if (button >= JoystickButton.FirstButton && button <= JoystickButton.Button128)
+                return true;
+
+            lock (unrepresentable_buttons)
+            {
+                if (unrepresentable_buttons.Add(button))
+                    Logger.Log($"Ignoring joystick button {(int)button}, which is outside the supported range.", LoggingTarget.Runtime, LogLevel.Important);
+            }
+
+            return false;
+        }
 
         /// <summary>
         /// Enqueues a <see cref="JoystickAxisInput"/> taking into account the axis deadzone.
