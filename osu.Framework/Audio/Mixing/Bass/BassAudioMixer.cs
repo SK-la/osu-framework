@@ -10,6 +10,7 @@ using ManagedBass.Mix;
 using osu.Framework.Extensions.EnumExtensions;
 using osu.Framework.Audio.EzLatency;
 using osu.Framework.Statistics;
+using osu.Framework.Threading;
 
 namespace osu.Framework.Audio.Mixing.Bass
 {
@@ -19,6 +20,8 @@ namespace osu.Framework.Audio.Mixing.Bass
     internal class BassAudioMixer : AudioMixer, IBassAudio
     {
         private readonly AudioManager? manager;
+
+        internal double AmplitudeProcessingHz => manager?.AmplitudeProcessingHz ?? AudioThread.MINIMUM_AMPLITUDE_PROCESSING_HZ;
 
         /// <summary>
         /// The handle for this mixer.

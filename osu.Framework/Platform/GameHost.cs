@@ -1347,6 +1347,8 @@ namespace osu.Framework.Platform
             if (refreshRate <= 0)
                 refreshRate = 60;
 
+            AudioThread.AmplitudeProcessingHz = Math.Max(refreshRate, AudioThread.MINIMUM_AMPLITUDE_PROCESSING_HZ);
+
             int drawLimiter = refreshRate;
 
             setVSyncMode();

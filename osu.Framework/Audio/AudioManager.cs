@@ -63,6 +63,8 @@ namespace osu.Framework.Audio
         /// </summary>
         private readonly AudioThread thread;
 
+        internal double AmplitudeProcessingHz => thread.AmplitudeProcessingHz;
+
         // Optional audio backend (non-null when using the new Windows WASAPI backend prototype).
         [CanBeNull]
         private readonly IAudioBackend audioBackend;

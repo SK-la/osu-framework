@@ -1,6 +1,8 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
+using System.Diagnostics;
 using ManagedBass;
 using osu.Framework.Audio.Mixing.Bass;
 using osu.Framework.Audio.Track;
@@ -29,10 +31,20 @@ namespace osu.Framework.Audio
 
         private readonly float[] channelLevels = new float[2];
 
+        private long lastUpdateTimestamp;
+
         public void Update()
         {
             if (channel.Handle == 0)
                 return;
+
+            long now = Stopwatch.GetTimestamp();
+            long minimumInterval = (long)(Stopwatch.Frequency / Math.Max(1, channel.Mixer.AmplitudeProcessingHz));
+
+            if (lastUpdateTimestamp != 0 && now - lastUpdateTimestamp < minimumInterval)
+                return;
+
+            lastUpdateTimestamp = now;
 
             bool active = channel.Mixer.ChannelIsActive(channel) == PlaybackState.Playing;
 

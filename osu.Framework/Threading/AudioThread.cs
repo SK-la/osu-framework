@@ -27,6 +27,21 @@ namespace osu.Framework.Threading
 {
     public class AudioThread : GameThread
     {
+        internal const double MINIMUM_AMPLITUDE_PROCESSING_HZ = 120;
+
+        private double amplitudeProcessingHz = MINIMUM_AMPLITUDE_PROCESSING_HZ;
+
+        /// <summary>
+        /// The target update rate for visual audio analysis (channel levels and FFT data).
+        /// This is kept separate from <see cref="GameThread.ActiveHz"/> so low-latency audio
+        /// control can run at a higher rate without repeatedly performing expensive analysis.
+        /// </summary>
+        internal double AmplitudeProcessingHz
+        {
+            get => Volatile.Read(ref amplitudeProcessingHz);
+            set => Volatile.Write(ref amplitudeProcessingHz, Math.Max(MINIMUM_AMPLITUDE_PROCESSING_HZ, value));
+        }
+
         internal enum AsioReconfigurePath
         {
             BufferRestart,
