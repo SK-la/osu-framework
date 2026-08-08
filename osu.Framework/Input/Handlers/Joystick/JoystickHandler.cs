@@ -4,10 +4,9 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Threading;
 using osu.Framework.Bindables;
+using osu.Framework.Extensions;
 using osu.Framework.Input.StateChanges;
-using osu.Framework.Logging;
 using osu.Framework.Platform;
 using osu.Framework.Statistics;
 
@@ -69,9 +68,10 @@ namespace osu.Framework.Input.Handlers.Joystick
             statistic_total_events.Value++;
         }
 
+        // the window layer already drops (and reports) unrepresentable indices; this is a silent net for any other source.
         private void enqueueJoystickButtonDown(JoystickButton button)
         {
-            if (!isRepresentable(button))
+            if (!button.IsRepresentable())
                 return;
 
             enqueueJoystickEvent(new JoystickButtonInput(button, true));
@@ -79,37 +79,10 @@ namespace osu.Framework.Input.Handlers.Joystick
 
         private void enqueueJoystickButtonUp(JoystickButton button)
         {
-            if (!isRepresentable(button))
+            if (!button.IsRepresentable())
                 return;
 
             enqueueJoystickEvent(new JoystickButtonInput(button, false));
-        }
-
-        private static int unrepresentableButtonLogged;
-
-        /// <summary>
-        /// Whether a button reported by SDL can be represented by <see cref="JoystickButton"/>.
-        /// </summary>
-        /// <remarks>
-        /// SDL reports a raw per-device button index, and a device with a malformed HID report descriptor can claim
-        /// hundreds of buttons with the padding bits permanently set. Those indices have no <see cref="JoystickButton"/>
-        /// representation so they can never be bound, but if let through they still occupy the pressed key set for the
-        /// remainder of the session and break every exactly-matched key combination.
-        /// </remarks>
-        private static bool isRepresentable(JoystickButton button)
-        {
-            // axis pseudo-buttons are synthesised internally and always in range.
-            if (button >= JoystickButton.FirstAxisNegative)
-                return true;
-
-            if (button >= JoystickButton.FirstButton && button <= JoystickButton.Button128)
-                return true;
-
-            // such a device reports every claimed index, so log the condition once rather than once per button.
-            if (Interlocked.Exchange(ref unrepresentableButtonLogged, 1) == 0)
-                Logger.Log($"Ignoring joystick buttons outside the supported range (1-{(int)JoystickButton.Button128}), first seen: {(int)button}. Further occurrences are not logged.");
-
-            return false;
         }
 
         private volatile ImmutableHashSet<JoystickAxisSource> continuousAxes = ImmutableHashSet<JoystickAxisSource>.Empty;

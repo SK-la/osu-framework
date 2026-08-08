@@ -8,6 +8,7 @@ using System.Drawing;
 using System.Threading;
 using osu.Framework.Bindables;
 using osu.Framework.Configuration;
+using osu.Framework.Extensions;
 using osu.Framework.Extensions.EnumExtensions;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Input;
@@ -155,6 +156,23 @@ namespace osu.Framework.Platform.SDL3
 
             string name = SDL_GetJoystickNameForID(instanceId) ?? string.Empty;
             JoystickDeviceAxisChanged?.Invoke(new JoystickDeviceAxis(id, guid, name, axisIndex, clamped));
+        }
+
+        private static int unrepresentableJoystickButtonLogged;
+
+        /// <summary>
+        /// Reports a button index that <see cref="JoystickButton"/> cannot represent, naming the device responsible.
+        /// </summary>
+        /// <remarks>
+        /// Such a device reports the whole offending range, so this logs once per session rather than once per index.
+        /// </remarks>
+        private void reportUnrepresentableJoystickButton(SDL_JoystickID instanceId, byte rawIndex)
+        {
+            if (Interlocked.Exchange(ref unrepresentableJoystickButtonLogged, 1) != 0)
+                return;
+
+            string name = SDL_GetJoystickNameForID(instanceId) ?? string.Empty;
+            Logger.Log($"Ignoring joystick buttons past {(int)JoystickButton.Button128} reported by \"{name}\" ({formatJoystickGuid(instanceId)}); first was index {rawIndex}. Further occurrences are not logged.");
         }
 
         private static string formatJoystickGuid(SDL_JoystickID instanceId)
@@ -445,6 +463,12 @@ namespace osu.Framework.Platform.SDL3
                 return;
 
             var button = JoystickButton.FirstButton + evtJbutton.button;
+
+            if (!button.IsRepresentable())
+            {
+                reportUnrepresentableJoystickButton(evtJbutton.which, evtJbutton.button);
+                return;
+            }
 
             switch (evtJbutton.type)
             {

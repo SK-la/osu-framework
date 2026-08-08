@@ -5,8 +5,10 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Threading;
 using osu.Framework.Bindables;
 using osu.Framework.Configuration;
+using osu.Framework.Extensions;
 using osu.Framework.Extensions.EnumExtensions;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Input;
@@ -148,6 +150,31 @@ namespace osu.Framework.Platform.SDL2
                 guid = $"id:{instanceId}";
 
             JoystickDeviceAxisChanged?.Invoke(new JoystickDeviceAxis((uint)instanceId, guid, name, axisIndex, clamped));
+        }
+
+        private static int unrepresentableJoystickButtonLogged;
+
+        /// <summary>
+        /// Reports a button index that <see cref="JoystickButton"/> cannot represent, naming the device responsible.
+        /// </summary>
+        /// <remarks>
+        /// Such a device reports the whole offending range, so this logs once per session rather than once per index.
+        /// </remarks>
+        private void reportUnrepresentableJoystickButton(int instanceId, byte rawIndex)
+        {
+            if (Interlocked.Exchange(ref unrepresentableJoystickButtonLogged, 1) != 0)
+                return;
+
+            string name = string.Empty;
+            string guid = $"id:{instanceId}";
+
+            if (controllers.TryGetValue(instanceId, out var bindings) && bindings.JoystickHandle != IntPtr.Zero)
+            {
+                name = SDL_JoystickName(bindings.JoystickHandle) ?? string.Empty;
+                guid = SDL_JoystickGetGUID(bindings.JoystickHandle).ToString("N");
+            }
+
+            Logger.Log($"Ignoring joystick buttons past {(int)JoystickButton.Button128} reported by \"{name}\" ({guid}); first was index {rawIndex}. Further occurrences are not logged.");
         }
 
         private void enqueueJoystickButtonInput(JoystickButton button, bool isPressed)
@@ -390,6 +417,12 @@ namespace osu.Framework.Platform.SDL2
                 return;
 
             var button = JoystickButton.FirstButton + evtJbutton.button;
+
+            if (!button.IsRepresentable())
+            {
+                reportUnrepresentableJoystickButton(evtJbutton.which, evtJbutton.button);
+                return;
+            }
 
             switch (evtJbutton.type)
             {
