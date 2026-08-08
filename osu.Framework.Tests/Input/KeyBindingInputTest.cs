@@ -60,6 +60,46 @@ namespace osu.Framework.Tests.Input
             AddAssert("receptorBelow received release", () => receptorBelow.ReleasedReceived);
         }
 
+        /// <summary>
+        /// Tests that a key with no <see cref="InputKey"/> mapping does not stop exactly-matched bindings from firing.
+        /// </summary>
+        /// <remarks>
+        /// Such a key converts to <see cref="InputKey.None"/>, which belongs to no binding and would therefore fail
+        /// every exact match for the remainder of the session if allowed into the pressed key set.
+        /// </remarks>
+        [Test]
+        public void TestUnmappedKeyDoesNotBreakExactMatching()
+        {
+            InputReceptor receptor = null;
+
+            AddStep("setup", () =>
+            {
+                Child = new TestExactKeyBindingContainer
+                {
+                    RelativeSizeAxes = Axes.Both,
+                    Child = receptor = new InputReceptor(true) { Size = new Vector2(100) }
+                };
+            });
+
+            AddStep("move mouse to receptor", () => InputManager.MoveMouseTo(receptor));
+            AddStep("press unmapped key", () => InputManager.PressKey(Key.Unknown));
+
+            AddStep("press ctrl+F11", () =>
+            {
+                InputManager.PressKey(Key.ControlLeft);
+                InputManager.PressKey(Key.F11);
+            });
+
+            AddAssert("binding still fired", () => receptor.PressedReceived);
+
+            AddStep("release all", () =>
+            {
+                InputManager.ReleaseKey(Key.F11);
+                InputManager.ReleaseKey(Key.ControlLeft);
+                InputManager.ReleaseKey(Key.Unknown);
+            });
+        }
+
         private partial class InputReceptor : Box, IKeyBindingHandler<TestKeyBinding>
         {
             public bool PressedReceived { get; private set; }
@@ -121,6 +161,19 @@ namespace osu.Framework.Tests.Input
             {
                 new KeyBinding(InputKey.Up, TestKeyBinding.Binding1),
                 new KeyBinding(InputKey.Down, TestKeyBinding.Binding2),
+            };
+        }
+
+        private partial class TestExactKeyBindingContainer : KeyBindingContainer<TestKeyBinding>, IHandleGlobalKeyboardInput
+        {
+            public TestExactKeyBindingContainer()
+                : base(SimultaneousBindingMode.Unique, KeyCombinationMatchingMode.Exact)
+            {
+            }
+
+            public override IEnumerable<IKeyBinding> DefaultKeyBindings => new[]
+            {
+                new KeyBinding(new[] { InputKey.Control, InputKey.F11 }, TestKeyBinding.Binding1),
             };
         }
 
