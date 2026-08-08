@@ -18,17 +18,28 @@ namespace osu.Framework.Input.StateChanges
         /// </summary>
         public readonly IEnumerable<JoystickAxis> Axes;
 
-        public JoystickAxisInput(JoystickAxis axis)
-            : this(axis.Yield())
+        /// <summary>
+        /// Whether a <see cref="JoystickButton"/> should be synthesised for the direction these axes point in.
+        /// </summary>
+        /// <remarks>
+        /// Should be <c>false</c> for an axis reporting a continuous position rather than a direction (a turntable
+        /// being the typical case). Such an axis rests wherever it was left, so the synthesised button would never
+        /// be released and would occupy the pressed key set for the remainder of the session.
+        /// </remarks>
+        public readonly bool EmitDirectionButtons;
+
+        public JoystickAxisInput(JoystickAxis axis, bool emitDirectionButtons = true)
+            : this(axis.Yield(), emitDirectionButtons)
         {
         }
 
-        public JoystickAxisInput(IEnumerable<JoystickAxis> axes)
+        public JoystickAxisInput(IEnumerable<JoystickAxis> axes, bool emitDirectionButtons = true)
         {
             if (axes.Count() > JoystickState.MAX_AXES)
                 throw new ArgumentException($"The length of the provided axes collection ({axes.Count()}) exceeds the maximum length ({JoystickState.MAX_AXES})", nameof(axes));
 
             Axes = axes;
+            EmitDirectionButtons = emitDirectionButtons;
         }
 
         public void Apply(InputState state, IInputStateChangeHandler handler)
@@ -55,7 +66,7 @@ namespace osu.Framework.Input.StateChanges
         {
             int index = (int)axis.Source;
             var currentButton = state.Joystick.AxisDirectionButtons[index];
-            var expectedButton = getAxisButtonForInput(index, axis.Value);
+            var expectedButton = EmitDirectionButtons ? getAxisButtonForInput(index, axis.Value) : 0;
 
             // if a directional button is pressed and does not match that for the new axis direction, release it
             if (currentButton != 0 && expectedButton != currentButton)

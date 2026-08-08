@@ -3,6 +3,8 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Linq;
 using osu.Framework.Bindables;
 using osu.Framework.Input.StateChanges;
 using osu.Framework.Logging;
@@ -112,11 +114,42 @@ namespace osu.Framework.Input.Handlers.Joystick
             return false;
         }
 
+        private volatile ImmutableHashSet<JoystickAxisSource> continuousAxes = ImmutableHashSet<JoystickAxisSource>.Empty;
+
+        /// <summary>
+        /// Declares which axes report a continuous position rather than a direction, a turntable being the typical case.
+        /// No directional <see cref="JoystickButton"/> is synthesised for these.
+        /// </summary>
+        /// <remarks>
+        /// Such an axis rests wherever it was last left rather than returning to centre, so its synthesised button would
+        /// stay pressed for the remainder of the session and break every exactly-matched key combination.
+        /// </remarks>
+        public void SetContinuousAxes(IEnumerable<JoystickAxisSource> axes)
+        {
+            var updated = axes.ToImmutableHashSet();
+            var previous = continuousAxes;
+
+            if (updated.SetEquals(previous))
+                return;
+
+            continuousAxes = updated;
+
+            // an axis already resting off-centre reports nothing further until moved, so release explicitly rather
+            // than waiting for the next movement to clear the button.
+            foreach (var axis in updated.Except(previous))
+            {
+                enqueueJoystickEvent(new JoystickButtonInput(JoystickButton.FirstAxisNegative + (int)axis, false));
+                enqueueJoystickEvent(new JoystickButtonInput(JoystickButton.FirstAxisPositive + (int)axis, false));
+            }
+        }
+
         /// <summary>
         /// Enqueues a <see cref="JoystickAxisInput"/> taking into account the axis deadzone.
         /// </summary>
         private void enqueueJoystickAxisChanged(JoystickAxisSource source, float value) =>
-            enqueueJoystickEvent(new JoystickAxisInput(new JoystickAxis(source, RescaleByDeadzone(value, DeadzoneThreshold.Value))));
+            enqueueJoystickEvent(new JoystickAxisInput(
+                new JoystickAxis(source, RescaleByDeadzone(value, DeadzoneThreshold.Value)),
+                emitDirectionButtons: !continuousAxes.Contains(source)));
 
         private void enqueueJoystickDeviceAxisChanged(JoystickDeviceAxis axis) => DeviceAxisChanged?.Invoke(axis);
 
