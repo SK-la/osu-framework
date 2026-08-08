@@ -331,6 +331,10 @@ namespace osu.Framework.Input.Bindings
                 {
                     var iKey = FromKey(key);
 
+                    // an unmapped scancode converts to None, which would break IsPressed for every candidate binding.
+                    if (iKey == InputKey.None)
+                        continue;
+
                     if (!keys.Contains(iKey))
                         keys.Add(iKey);
                 }

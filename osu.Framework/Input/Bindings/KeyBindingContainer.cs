@@ -210,6 +210,11 @@ namespace osu.Framework.Input.Bindings
 
         private bool handleNewPressed(InputState state, InputKey newKey, Vector2? scrollDelta = null, bool isPrecise = false)
         {
+            // None means the input could not be mapped to a known key (ie. an unmapped scancode via KeyCombination.FromKey).
+            // Letting it into the pressed set would make every Exact-matched binding fail for as long as it remains.
+            if (newKey == InputKey.None)
+                return false;
+
             pressedInputKeys.Add(newKey);
 
             float scrollAmount = getScrollAmount(newKey, scrollDelta);
@@ -367,6 +372,10 @@ namespace osu.Framework.Input.Bindings
 
         private void handleNewReleased(InputState state, InputKey releasedKey)
         {
+            // never entered the pressed set, see handleNewPressed.
+            if (releasedKey == InputKey.None)
+                return;
+
             pressedInputKeys.Remove(releasedKey);
             bindingInitiatingKeys.Remove(releasedKey);
 
