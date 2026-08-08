@@ -4,7 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Linq;
+using System.Threading;
 using osu.Framework.Bindables;
 using osu.Framework.Input.StateChanges;
 using osu.Framework.Logging;
@@ -85,7 +85,7 @@ namespace osu.Framework.Input.Handlers.Joystick
             enqueueJoystickEvent(new JoystickButtonInput(button, false));
         }
 
-        private static readonly HashSet<JoystickButton> unrepresentable_buttons = new HashSet<JoystickButton>();
+        private static int unrepresentableButtonLogged;
 
         /// <summary>
         /// Whether a button reported by SDL can be represented by <see cref="JoystickButton"/>.
@@ -105,11 +105,9 @@ namespace osu.Framework.Input.Handlers.Joystick
             if (button >= JoystickButton.FirstButton && button <= JoystickButton.Button128)
                 return true;
 
-            lock (unrepresentable_buttons)
-            {
-                if (unrepresentable_buttons.Add(button))
-                    Logger.Log($"Ignoring joystick button {(int)button}, which is outside the supported range.", LoggingTarget.Runtime, LogLevel.Important);
-            }
+            // such a device reports every claimed index, so log the condition once rather than once per button.
+            if (Interlocked.Exchange(ref unrepresentableButtonLogged, 1) == 0)
+                Logger.Log($"Ignoring joystick buttons outside the supported range (1-{(int)JoystickButton.Button128}), first seen: {(int)button}. Further occurrences are not logged.");
 
             return false;
         }
