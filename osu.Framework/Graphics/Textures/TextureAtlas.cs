@@ -51,13 +51,19 @@ namespace osu.Framework.Graphics.Textures
         private readonly TextureFilteringMode filteringMode;
         private readonly object textureRetrievalLock = new object();
 
-        public TextureAtlas(IRenderer renderer, int width, int height, bool manualMipmaps = false, TextureFilteringMode filteringMode = TextureFilteringMode.Linear)
+        /// <summary>
+        /// Identifies this atlas in logs, so that an overflow can be traced back to the store which caused it.
+        /// </summary>
+        private readonly string label;
+
+        public TextureAtlas(IRenderer renderer, int width, int height, bool manualMipmaps = false, TextureFilteringMode filteringMode = TextureFilteringMode.Linear, string label = "unnamed")
         {
             this.renderer = renderer;
             atlasWidth = width;
             atlasHeight = height;
             this.manualMipmaps = manualMipmaps;
             this.filteringMode = filteringMode;
+            this.label = label;
         }
 
         public void DisposeResources()
@@ -160,13 +166,16 @@ namespace osu.Framework.Graphics.Textures
         {
             if (atlasTexture == null)
             {
-                Logger.Log($"TextureAtlas initialised ({atlasWidth}x{atlasHeight})", LoggingTarget.Performance);
+                Logger.Log($"TextureAtlas [{label}] initialised ({atlasWidth}x{atlasHeight})", LoggingTarget.Performance);
                 Reset();
             }
 
             if (currentPosition.Y + height + PADDING > atlasHeight)
             {
-                Logger.Log($"TextureAtlas size exceeded {++exceedCount} time(s); generating new texture ({atlasWidth}x{atlasHeight})", LoggingTarget.Performance);
+                // Every extra atlas is another texture the renderer has to bind between, and each of those binds breaks
+                // the current batch. The first overflow is the one worth surfacing; the rest only add detail.
+                Logger.Log($"TextureAtlas [{label}] size exceeded {++exceedCount} time(s); generating new texture ({atlasWidth}x{atlasHeight})", LoggingTarget.Performance,
+                    exceedCount == 1 ? LogLevel.Important : LogLevel.Verbose);
                 Reset();
             }
 

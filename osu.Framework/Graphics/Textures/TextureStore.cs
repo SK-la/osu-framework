@@ -43,12 +43,20 @@ namespace osu.Framework.Graphics.Textures
         private const int max_atlas_size = 1024;
 
         /// <summary>
+        /// The dimensions of this store's <see cref="Atlas"/>, for diagnostics.
+        /// </summary>
+        private readonly int atlasSize;
+
+        /// <summary>
         /// Decides at what resolution multiple this <see cref="TextureStore"/> is providing sprites at.
         /// ie. if we are providing high resolution (at 2x the resolution of standard 1366x768) sprites this should be 2.
         /// </summary>
         public readonly float ScaleAdjust;
 
-        public TextureStore(IRenderer renderer, IResourceStore<TextureUpload> store = null, bool useAtlas = true, TextureFilteringMode filteringMode = TextureFilteringMode.Linear, bool manualMipmaps = false, float scaleAdjust = 2)
+        // preferredAtlasSize raises the limit above for stores which would otherwise overflow into several atlases, at
+        // the cost of a more expensive mipmap regeneration per upload batch. Still clamped to the renderer's maximum.
+        public TextureStore(IRenderer renderer, IResourceStore<TextureUpload> store = null, bool useAtlas = true, TextureFilteringMode filteringMode = TextureFilteringMode.Linear, bool manualMipmaps = false, float scaleAdjust = 2,
+                            int? preferredAtlasSize = null)
         {
             if (store != null)
                 AddTextureSource(store);
@@ -61,8 +69,8 @@ namespace osu.Framework.Graphics.Textures
 
             if (useAtlas)
             {
-                int size = Math.Min(max_atlas_size, renderer.MaxTextureSize);
-                Atlas = new TextureAtlas(renderer, size, size, filteringMode: filteringMode, manualMipmaps: manualMipmaps);
+                atlasSize = Math.Min(preferredAtlasSize ?? max_atlas_size, renderer.MaxTextureSize);
+                Atlas = new TextureAtlas(renderer, atlasSize, atlasSize, filteringMode: filteringMode, manualMipmaps: manualMipmaps, label: GetType().Name);
             }
         }
 
@@ -115,7 +123,7 @@ namespace osu.Framework.Graphics.Textures
                 if ((tex = Atlas.Add(upload.Width, upload.Height, wrapModeS, wrapModeT)) == null)
                 {
                     Logger.Log(
-                        $"Texture requested ({upload.Width}x{upload.Height}) which exceeds {nameof(TextureStore)}'s atlas size ({max_atlas_size}x{max_atlas_size}) - bypassing atlasing. Consider using {nameof(LargeTextureStore)}.",
+                        $"Texture requested ({upload.Width}x{upload.Height}) which exceeds {nameof(TextureStore)}'s atlas size ({atlasSize}x{atlasSize}) - bypassing atlasing. Consider using {nameof(LargeTextureStore)}.",
                         LoggingTarget.Performance);
                 }
             }

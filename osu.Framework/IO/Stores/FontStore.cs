@@ -53,9 +53,16 @@ namespace osu.Framework.IO.Stores
         {
         }
 
+        /// <summary>
+        /// Glyphs are small but numerous, and a script such as Chinese or Japanese can push several thousand of them
+        /// into the atlas. Overflowing scatters glyphs across several textures, and from then on every piece of text
+        /// spanning two of them breaks the current batch, permanently and everywhere text is drawn.
+        /// </summary>
+        private const int glyph_atlas_size = 4096;
+
         internal FontStore(IRenderer renderer, IResourceStore<TextureUpload> store = null, float scaleAdjust = 100, bool useAtlas = false, Storage cacheStorage = null,
                            TextureFilteringMode filteringMode = TextureFilteringMode.Linear)
-            : base(renderer, store, scaleAdjust: scaleAdjust, useAtlas: useAtlas, filteringMode: filteringMode)
+            : base(renderer, store, scaleAdjust: scaleAdjust, useAtlas: useAtlas, filteringMode: filteringMode, preferredAtlasSize: glyph_atlas_size)
         {
             this.cacheStorage = cacheStorage;
         }
