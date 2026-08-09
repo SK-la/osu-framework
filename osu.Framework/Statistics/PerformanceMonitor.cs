@@ -51,6 +51,36 @@ namespace osu.Framework.Statistics
             }
         }
 
+        private volatile bool collectionRequested;
+
+        /// <summary>
+        /// [Ez] Whether anything currently reads this monitor's output — the frame statistics overlay, the global
+        /// statistics display, or performance logging. Collection is skipped entirely while nothing does.
+        /// </summary>
+        /// <remarks>
+        /// Collecting is not free: <see cref="NewFrame"/> walks every active counter and writes two dictionaries,
+        /// and <see cref="consumeStopwatchElapsedTime"/> queries <see cref="GC.GetTotalPauseDuration"/> on every
+        /// Begin/End pair, which is around seven times per frame per thread.
+        /// <para>
+        /// Written from the update thread, sampled once per frame in <see cref="NewFrame"/> so that a change
+        /// cannot land mid-frame and leave <see cref="currentCollectionTypeStack"/> unbalanced.
+        /// </para>
+        /// </remarks>
+        internal bool CollectionRequested
+        {
+            set => collectionRequested = value;
+        }
+
+        /// <summary>
+        /// <see cref="collectionRequested"/> as sampled for the current frame. Only touched by our own thread.
+        /// </summary>
+        private bool collecting;
+
+        /// <summary>
+        /// [Ez] Whether collection is actually running as of the current frame.
+        /// </summary>
+        internal bool Collecting => collecting;
+
         private double consumptionTime;
         private double consumptionGCTotalPauseDuration;
 
@@ -109,6 +139,10 @@ namespace osu.Framework.Statistics
         /// </summary>
         public InvokeOnDisposal BeginCollecting(PerformanceCollectionType type)
         {
+            // callers all either `using` the result or null-check it, so handing back nothing is safe.
+            if (!collecting)
+                return null;
+
             // Consume time, regardless of whether we are using it at this point.
             // If not, an `EndCollecting` call may end up reporting more time than actually passed between
             // the Begin-End pair.
@@ -161,6 +195,20 @@ namespace osu.Framework.Statistics
         /// </summary>
         public void NewFrame()
         {
+            bool wasCollecting = collecting;
+            collecting = collectionRequested;
+
+            if (!collecting)
+            {
+                // a Begin/End pair can straddle the frame boundary (see GameHost.windowUpdate), so an entry from
+                // the frame we stopped on may still be on the stack.
+                currentCollectionTypeStack.Clear();
+                return;
+            }
+
+            if (!wasCollecting)
+                resumeCollecting();
+
             // Reset the counters we keep track of
             for (int i = 0; i < ActiveCounters.Length; ++i)
             {
@@ -212,8 +260,35 @@ namespace osu.Framework.Statistics
             consumeStopwatchElapsedTime();
         }
 
+        /// <summary>
+        /// [Ez] Discard everything that piled up while stopped, so the first collected frame does not report the
+        /// whole idle period as one enormous frame.
+        /// </summary>
+        private void resumeCollecting()
+        {
+            currentCollectionTypeStack.Clear();
+            currentFrame.Clear();
+
+            for (int i = 0; i < ActiveCounters.Length; ++i)
+            {
+                if (ActiveCounters[i])
+                    FrameStatistics.COUNTERS[i] = 0;
+            }
+
+            if (HandleGC)
+            {
+                for (int i = 0; i < lastAmountGarbageCollects.Length; ++i)
+                    lastAmountGarbageCollects[i] = GC.CollectionCount(i);
+            }
+
+            consumeStopwatchElapsedTime();
+        }
+
         public void EndFrame()
         {
+            if (!collecting)
+                return;
+
             traceCollector?.EndFrame();
         }
 

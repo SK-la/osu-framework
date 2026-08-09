@@ -286,7 +286,11 @@ namespace osu.Framework
                 Depth = float.MinValue
             }, overlayContent.Add);
 
-            FrameStatistics.BindValueChanged(e => performanceOverlay.State = e.NewValue, true);
+            FrameStatistics.BindValueChanged(e =>
+            {
+                performanceOverlay.State = e.NewValue;
+                updateFrameStatisticsDemand();
+            }, true);
 
             if (FrameworkEnvironment.FrameStatisticsViaTouch)
             {
@@ -350,6 +354,9 @@ namespace osu.Framework
                             Position = getCascadeLocation(1),
                             Depth = getNextFrontMostOverlayDepth(),
                         }, overlayContent.Add);
+
+                        // [Ez] this display reads per-thread counters, which are only refreshed while collecting.
+                        globalStatistics.State.BindValueChanged(_ => updateFrameStatisticsDemand(), true);
                     }
                     else
                         toggleOverlay(globalStatistics);
@@ -418,6 +425,24 @@ namespace osu.Framework
 
             static Vector2 getCascadeLocation(int index)
                 => new Vector2(100 + index * (TitleBar.HEIGHT + 10));
+        }
+
+        private bool frameStatisticsDemanded;
+
+        /// <summary>
+        /// [Ez] Tell the host whether any of our diagnostic overlays needs per-frame statistics, so that the
+        /// per-thread monitors can stay idle for the vast majority of sessions where none is ever opened.
+        /// </summary>
+        private void updateFrameStatisticsDemand()
+        {
+            bool demanded = FrameStatistics.Value != FrameStatisticsMode.None
+                            || globalStatistics?.State.Value == Visibility.Visible;
+
+            if (demanded == frameStatisticsDemanded)
+                return;
+
+            frameStatisticsDemanded = demanded;
+            Host.FrameStatisticsConsumers.Value += demanded ? 1 : -1;
         }
 
         protected void CycleFrameStatistics()
@@ -500,6 +525,13 @@ namespace osu.Framework
 
         protected override void Dispose(bool isDisposing)
         {
+            // [Ez] release our share of the statistics demand, or a nested game would leave it pinned on.
+            if (frameStatisticsDemanded)
+            {
+                frameStatisticsDemanded = false;
+                Host.FrameStatisticsConsumers.Value--;
+            }
+
             // ensure any async disposals are completed before we begin to rip components out.
             // if we were to not wait, async disposals may throw unexpected exceptions.
             AsyncDisposalQueue.WaitForEmpty();
