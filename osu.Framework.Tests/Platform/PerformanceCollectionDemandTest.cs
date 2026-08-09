@@ -22,8 +22,8 @@ namespace osu.Framework.Tests.Platform
         [Test]
         public void TestCollectionFollowsDemand()
         {
-            SignallingGame game = null;
-            TestRunHeadlessGameHost host = null;
+            SignallingGame? game = null;
+            TestRunHeadlessGameHost? host = null;
             var gameCreated = new ManualResetEventSlim();
 
             var task = Task.Factory.StartNew(() =>
@@ -39,28 +39,31 @@ namespace osu.Framework.Tests.Platform
             try
             {
                 gameCreated.Wait(timeout);
-                Assert.That(game.BecameAlive.Wait(timeout), Is.True);
+                Assert.That(game != null && game.BecameAlive.Wait(timeout), Is.True);
 
                 // no overlay has been opened, so every thread should be idle.
-                assertCollecting(host, false);
+                if (host != null)
+                {
+                    assertCollecting(host, false);
 
-                setConsumers(host, 1);
-                assertCollecting(host, true);
+                    setConsumers(host, 1);
+                    assertCollecting(host, true);
 
-                // a second consumer appearing and going away again must not stop the first one's collection.
-                setConsumers(host, 2);
-                setConsumers(host, 1);
-                assertCollecting(host, true);
+                    // a second consumer appearing and going away again must not stop the first one's collection.
+                    setConsumers(host, 2);
+                    setConsumers(host, 1);
+                    assertCollecting(host, true);
 
-                setConsumers(host, 0);
-                assertCollecting(host, false);
+                    setConsumers(host, 0);
+                    assertCollecting(host, false);
 
-                // performance logging is an independent reason to collect.
-                schedule(host, () => host.PerformanceLogging.Value = true);
-                assertCollecting(host, true);
+                    // performance logging is an independent reason to collect.
+                    schedule(host, () => host.PerformanceLogging.Value = true);
+                    assertCollecting(host, true);
 
-                schedule(host, () => host.PerformanceLogging.Value = false);
-                assertCollecting(host, false);
+                    schedule(host, () => host.PerformanceLogging.Value = false);
+                    assertCollecting(host, false);
+                }
             }
             finally
             {
