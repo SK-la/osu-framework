@@ -247,7 +247,10 @@ namespace osu.Framework.Platform
             thread.UnhandledException = unhandledExceptionHandler;
 
             if (thread.Monitor != null)
+            {
                 thread.Monitor.EnablePerformanceProfiling = PerformanceLogging.Value;
+                thread.Monitor.CollectionRequested = performanceCollectionRequested;
+            }
         }
 
         /// <summary>
@@ -1234,6 +1237,35 @@ namespace osu.Framework.Platform
 
         public readonly Bindable<bool> PerformanceLogging = new Bindable<bool>();
 
+        /// <summary>
+        /// [Ez] How many diagnostic overlays currently display per-frame statistics. Maintained by
+        /// <see cref="Game"/> as its overlays are shown and hidden.
+        /// </summary>
+        /// <remarks>
+        /// A count rather than a flag because a host can run more than one <see cref="Game"/> — test scenes
+        /// nest games into the runner — and they must not clobber each other's demand.
+        /// </remarks>
+        internal readonly BindableInt FrameStatisticsConsumers = new BindableInt();
+
+        /// <summary>
+        /// [Ez] Whether the per-thread <see cref="PerformanceMonitor"/>s have anyone to collect for.
+        /// </summary>
+        private bool performanceCollectionRequested => FrameStatisticsConsumers.Value > 0 || PerformanceLogging.Value;
+
+        /// <summary>
+        /// [Ez] Start or stop per-frame statistics collection on every registered thread.
+        /// </summary>
+        private void updatePerformanceCollection()
+        {
+            bool requested = performanceCollectionRequested;
+
+            Threads.ForEach(t =>
+            {
+                if (t.Monitor != null)
+                    t.Monitor.CollectionRequested = requested;
+            });
+        }
+
         private Bindable<WindowMode> windowMode;
 
         private Bindable<ExecutionMode> executionMode;
@@ -1302,7 +1334,11 @@ namespace osu.Framework.Platform
                 });
                 DebugUtils.LogPerformanceIssues = logging.NewValue;
                 TypePerformanceMonitor.Active = logging.NewValue;
+
+                updatePerformanceCollection();
             }, true);
+
+            FrameStatisticsConsumers.BindValueChanged(_ => updatePerformanceCollection());
 
             bypassFrontToBackPass = DebugConfig.GetBindable<bool>(DebugSetting.BypassFrontToBackPass);
 
