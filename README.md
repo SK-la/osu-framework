@@ -71,7 +71,7 @@ SK-la/osu-resources  →  NuGet: ez2lazer.Game.Resources
 SK-la/Ez2Lazer       →  游戏本体（默认引用上述 NuGet；可切本地工程引用）
 ```
 
-本地联调：在 Ez2Lazer 的 `Ez2Lazer.Dependencies.props` 中将 `UseEz2LazerNuGetPackages` 设为 `false`，并保持本仓库与主仓同级目录。
+本地联调：在 Ez2Lazer 的 `Ez2Lazer.Dependencies.props` 中声明 `UseEz2LazerLocalProjects` 为 `true`（默认不声明 = 用 NuGet），并保持本仓库与主仓同级目录。
 
 文档与功能总览：[Ez2Lazer Wiki](https://github.com/SK-la/Ez2Lazer/wiki)
 
@@ -154,7 +154,7 @@ SK-la/osu-resources  →  NuGet: ez2lazer.Game.Resources
 SK-la/Ez2Lazer       →  game (defaults to NuGet; can switch to sibling project refs)
 ```
 
-Local wiring: set `UseEz2LazerNuGetPackages` to `false` in Ez2Lazer’s `Ez2Lazer.Dependencies.props`, and keep this repo next to the game repo.
+Local wiring: set `UseEz2LazerLocalProjects` to `true` in Ez2Lazer’s `Ez2Lazer.Dependencies.props` (NuGet is the default when unset), and keep this repo next to the game repo.
 
 Docs: [Ez2Lazer Wiki](https://github.com/SK-la/Ez2Lazer/wiki)
 
