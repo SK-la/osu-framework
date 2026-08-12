@@ -120,7 +120,7 @@ namespace osu.Framework.IO.Stores
             if (metrics is null)
                 return null;
 
-            return new CharacterGlyph(codepoint, metrics.XOffset, metrics.YOffset, metrics.XAdvance, metrics.Baseline, this);
+            return new CharacterGlyph(codepoint, metrics.XOffset, metrics.YOffset, metrics.XAdvance, metrics.Baseline, this, Font.HasColourGlyphs);
         }
 
         public int GetKerning(char left, char right) => GetKerning((int)left, (int)right);

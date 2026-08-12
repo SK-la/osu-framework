@@ -23,6 +23,7 @@ using static FreeTypeSharp.FT_Error;
 using static FreeTypeSharp.FT_FACE_FLAG;
 using static FreeTypeSharp.FT_Kerning_Mode_;
 using static FreeTypeSharp.FT_LOAD;
+using static FreeTypeSharp.FT_Pixel_Mode_;
 
 namespace osu.Framework.Text
 {
@@ -63,6 +64,11 @@ namespace osu.Framework.Text
         public string AssetPath { get; }
 
         public string AssetName => AssetPath.Split('/').Last();
+
+        /// <summary>
+        /// Whether this font contains colour bitmap glyphs (e.g. CBDT/CBLC emoji) that should not be tinted.
+        /// </summary>
+        public bool HasColourGlyphs { get; private set; }
 
         /// <summary>
         /// The font's index in a font collection.
@@ -227,6 +233,8 @@ namespace osu.Framework.Text
                 error = FT_Set_Pixel_Sizes(native, 0, emResolution);
 
                 if (error != 0) throw new FreeTypeException(error);
+
+                HasColourGlyphs = ((FT_FACE_FLAG)native->face_flags.Value).HasFlagFast(FT_FACE_FLAG_COLOR);
 
                 if (((FT_FACE_FLAG)native->face_flags.Value).HasFlagFast(FT_FACE_FLAG_MULTIPLE_MASTERS))
                 {
@@ -622,8 +630,13 @@ namespace osu.Framework.Text
             lock (faceLock)
             {
                 setVariation(face, variation);
+                // Prefer colour bitmap strikes when present (emoji); fall back to outline rendering.
                 // ReSharper disable once BitwiseOperatorOnEnumWithoutFlags
-                FT_Error error = FT_Load_Glyph(face, glyphIndex, FT_LOAD_NO_BITMAP | FT_LOAD_NO_HINTING);
+                FT_Error error = FT_Load_Glyph(face, glyphIndex, FT_LOAD_COLOR | FT_LOAD_BITMAP_METRICS_ONLY | FT_LOAD_NO_HINTING);
+
+                if (error != 0)
+                    // ReSharper disable once BitwiseOperatorOnEnumWithoutFlags
+                    error = FT_Load_Glyph(face, glyphIndex, FT_LOAD_NO_BITMAP | FT_LOAD_NO_HINTING);
 
                 if (error != 0)
                 {
@@ -720,8 +733,12 @@ namespace osu.Framework.Text
             {
                 setVariation(face, variation);
 
+                // Prefer colour bitmap strikes (CBDT/CBLC emoji). Fall back to outline rasterization.
                 // ReSharper disable BitwiseOperatorOnEnumWithoutFlags
-                FT_Error error = FT_Load_Glyph(native, glyphIndex, FT_LOAD_NO_BITMAP | FT_LOAD_NO_HINTING | FT_LOAD_RENDER);
+                FT_Error error = FT_Load_Glyph(native, glyphIndex, FT_LOAD_COLOR | FT_LOAD_NO_HINTING | FT_LOAD_RENDER);
+
+                if (error != 0)
+                    error = FT_Load_Glyph(native, glyphIndex, FT_LOAD_NO_BITMAP | FT_LOAD_NO_HINTING | FT_LOAD_RENDER);
                 // ReSharper restore BitwiseOperatorOnEnumWithoutFlags
 
                 if (error != 0) throw new FreeTypeException(error);
@@ -730,16 +747,36 @@ namespace osu.Framework.Text
                 var ftBitmap = &native->glyph->bitmap;
                 int width = ftBitmap->width != 0 ? (int)ftBitmap->width : 1;
                 int height = ftBitmap->rows != 0 ? (int)ftBitmap->rows : 1;
-                image = new Image<Rgba32>(width, height, new Rgba32(0, 0, 0, byte.MaxValue));
+                image = new Image<Rgba32>(width, height, new Rgba32(0, 0, 0, 0));
+
+                if (ftBitmap->buffer == null || ftBitmap->width == 0 || ftBitmap->rows == 0)
+                    return new TextureUpload(image);
+
+                int pitch = ftBitmap->pitch;
+                byte* baseBuffer = ftBitmap->buffer;
 
                 for (int y = 0; y < ftBitmap->rows; ++y)
                 {
-                    var srcRow = new ReadOnlySpan<byte>(ftBitmap->buffer + (y * ftBitmap->pitch), ftBitmap->pitch);
+                    byte* rowPtr = pitch >= 0
+                        ? baseBuffer + y * pitch
+                        : baseBuffer + (ftBitmap->rows - 1 - y) * (-pitch);
+
+                    int rowBytes = Math.Abs(pitch);
+                    var srcRow = new ReadOnlySpan<byte>(rowPtr, rowBytes);
                     var dstRow = image.DangerousGetPixelRowMemory(y).Span;
 
-                    for (int x = 0; x < ftBitmap->width; ++x)
+                    if (ftBitmap->pixel_mode == (byte)FT_PIXEL_MODE_BGRA)
                     {
-                        dstRow[x] = new Rgba32(byte.MaxValue, byte.MaxValue, byte.MaxValue, srcRow[x]);
+                        for (int x = 0; x < ftBitmap->width; ++x)
+                        {
+                            int i = x * 4;
+                            dstRow[x] = new Rgba32(srcRow[i + 2], srcRow[i + 1], srcRow[i], srcRow[i + 3]);
+                        }
+                    }
+                    else
+                    {
+                        for (int x = 0; x < ftBitmap->width; ++x)
+                            dstRow[x] = new Rgba32(byte.MaxValue, byte.MaxValue, byte.MaxValue, srcRow[x]);
                     }
                 }
             }

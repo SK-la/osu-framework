@@ -24,6 +24,11 @@ namespace osu.Framework.Text
         /// </summary>
         public readonly float Scale;
 
+        /// <summary>
+        /// Whether this glyph already contains colour information and should not be tinted by the parent text colour.
+        /// </summary>
+        public bool HasColour => glyph.HasColour;
+
         private readonly CharacterGlyph glyph;
 
         /// <summary>
