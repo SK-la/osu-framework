@@ -175,7 +175,7 @@ namespace osu.Framework.Graphics.Textures
                 // Every extra atlas is another texture the renderer has to bind between, and each of those binds breaks
                 // the current batch. The first overflow is the one worth surfacing; the rest only add detail.
                 Logger.Log($"TextureAtlas [{label}] size exceeded {++exceedCount} time(s); generating new texture ({atlasWidth}x{atlasHeight})", LoggingTarget.Performance,
-                    exceedCount == 1 ? LogLevel.Important : LogLevel.Verbose);
+                    exceedCount == 1 ? LogLevel.Error : LogLevel.Verbose);
                 Reset();
             }
 
