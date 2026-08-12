@@ -123,7 +123,7 @@ namespace osu.Framework.IO.Stores
             return new CharacterGlyph(codepoint, metrics.XOffset, metrics.YOffset, metrics.XAdvance, metrics.Baseline, this, Font.HasColourGlyphs);
         }
 
-        public int GetKerning(char left, char right) => GetKerning((int)left, (int)right);
+        public int GetKerning(char left, char right) => GetKerning(left, (int)right);
 
         public int GetKerning(int leftCodepoint, int rightCodepoint)
         {
