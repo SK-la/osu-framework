@@ -57,6 +57,7 @@ NuGet 包名：`ez2lazer.Framework`（由 Ez2Lazer 主仓的 `Ez2Lazer.Dependenc
 ### 其它
 
 - 字体双字符（代理对）解析，基本 emoji 显示。
+- **OT-SVG 彩色 emoji**：`plutosvgft`（PlutoSVG FreeType hooks）随 `ez2lazer.Framework` 的 `runtimes/*/native` 分发；`OutlineFont` 启动时注册 `ot-svg`/`svg-hooks`，可渲染 `NotoColorEmoji-Regular.ttf`。
 - SDL3 退出时 native 清理超时，减轻关进程后后台僵持。
 - WaveformGraph、故事板/采样 LRU 与内存相关修复等维护性改动。
 - CI / NuGet 可信发布面向 SK-la fork 调整。
@@ -71,7 +72,18 @@ SK-la/osu-resources  →  NuGet: ez2lazer.Game.Resources
 SK-la/Ez2Lazer       →  游戏本体（默认引用上述 NuGet；可切本地工程引用）
 ```
 
-本地联调：在 Ez2Lazer 的 `Ez2Lazer.Dependencies.props` 中声明 `UseEz2LazerLocalProjects` 为 `true`（默认不声明 = 用 NuGet），并保持本仓库与主仓同级目录。
+本地联调：在 Ez2Lazer 的 `Ez2Lazer.Dependencies.props` 中声明 `UseEz2LazerLocalFrameworkProject` / `UseEz2LazerLocalResourcesProject` 为 `true`，并保持本仓库与主仓同级目录。
+
+### NuGet 发布顺序（OT-SVG）
+
+主仓 `PackEz2GameNuGet` 会设 `UseEz2LazerLocalFrameworkProject=false`，因此彩色 SVG emoji **依赖已发布的** `ez2lazer.Framework` 包内 `plutosvgft`：
+
+1. 确认 `osu.Framework/runtimes/win-x64/native/plutosvgft.dll` 与 `linux-x64/native/libplutosvgft.so` 已提交。
+2. 打 tag `*.*.*-ez2lazer` → `deploy-pack` 发布 `ez2lazer.Framework`。
+3. 用 `scripts/Verify-FrameworkNupkgPlutoSvg.ps1 -Nupkg <nupkg>` 验收 runtimes。
+4. 主仓把 `Ez2LazerFrameworkVersion` 升到该版本后再打包游戏 / 安装包。
+
+缺某 RID 的 native 时 hooks 注册失败并回退 BMFont，不应导致启动崩溃。
 
 文档与功能总览：[Ez2Lazer Wiki](https://github.com/SK-la/Ez2Lazer/wiki)
 
@@ -140,6 +152,7 @@ NuGet package: `ez2lazer.Framework` (referenced from Ez2Lazer’s `Ez2Lazer.Depe
 ### Misc
 
 - Surrogate-pair font parsing for basic emoji.
+- **OT-SVG colour emoji**: `plutosvgft` (PlutoSVG FreeType hooks) ships in `ez2lazer.Framework` under `runtimes/*/native`; `OutlineFont` registers `ot-svg`/`svg-hooks` so `NotoColorEmoji-Regular.ttf` can rasterize.
 - SDL3 native cleanup timeout on exit to reduce hung background processes.
 - WaveformGraph, storyboard / sample LRU and other memory-related maintenance.
 - CI / trusted NuGet publish adapted for the SK-la fork.
@@ -154,6 +167,18 @@ SK-la/osu-resources  →  NuGet: ez2lazer.Game.Resources
 SK-la/Ez2Lazer       →  game (defaults to NuGet; can switch to sibling project refs)
 ```
 
+Local sibling refs: set `UseEz2LazerLocalFrameworkProject` / `UseEz2LazerLocalResourcesProject` in Ez2Lazer’s `Ez2Lazer.Dependencies.props`.
+
+### NuGet publish order (OT-SVG)
+
+Game packing (`PackEz2GameNuGet`) sets `UseEz2LazerLocalFrameworkProject=false`, so colour SVG emoji needs a published `ez2lazer.Framework` that contains `plutosvgft`:
+
+1. Ensure `osu.Framework/runtimes/win-x64/native/plutosvgft.dll` and `linux-x64/native/libplutosvgft.so` are committed.
+2. Tag `*.*.*-ez2lazer` → `deploy-pack` publishes `ez2lazer.Framework`.
+3. Verify with `scripts/Verify-FrameworkNupkgPlutoSvg.ps1 -Nupkg <nupkg>`.
+4. Bump `Ez2LazerFrameworkVersion` in the game repo, then pack the game / installer.
+
+Missing RID natives soft-fail to BMFont; they must not crash startup.
 Local wiring: set `UseEz2LazerLocalProjects` to `true` in Ez2Lazer’s `Ez2Lazer.Dependencies.props` (NuGet is the default when unset), and keep this repo next to the game repo.
 
 Docs: [Ez2Lazer Wiki](https://github.com/SK-la/Ez2Lazer/wiki)

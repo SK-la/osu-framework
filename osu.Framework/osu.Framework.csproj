@@ -61,4 +61,13 @@
     <PackageReference Include="Markdig" Version="0.23.0" />
     <PackageReference Include="System.Numerics.Tensors" Version="8.0.0" />
   </ItemGroup>
+  <!-- PlutoSVG FreeType OT-SVG hooks (plutosvgft). Packed into ez2lazer.Framework for NuGet consumers. -->
+  <ItemGroup>
+    <None Include="runtimes\**\native\*">
+      <Pack>true</Pack>
+      <PackagePath>runtimes</PackagePath>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>runtimes\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </None>
+  </ItemGroup>
 </Project>
