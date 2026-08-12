@@ -631,12 +631,10 @@ namespace osu.Framework.Text
             {
                 setVariation(face, variation);
                 // Prefer colour bitmap strikes when present (emoji); fall back to outline rendering.
-                // ReSharper disable once BitwiseOperatorOnEnumWithoutFlags
-                FT_Error error = FT_Load_Glyph(face, glyphIndex, FT_LOAD_COLOR | FT_LOAD_BITMAP_METRICS_ONLY | FT_LOAD_NO_HINTING);
+                FT_Error error = FT_Load_Glyph(face, glyphIndex, combineLoadFlags(FT_LOAD_COLOR, FT_LOAD_BITMAP_METRICS_ONLY, FT_LOAD_NO_HINTING));
 
                 if (error != 0)
-                    // ReSharper disable once BitwiseOperatorOnEnumWithoutFlags
-                    error = FT_Load_Glyph(face, glyphIndex, FT_LOAD_NO_BITMAP | FT_LOAD_NO_HINTING);
+                    error = FT_Load_Glyph(face, glyphIndex, combineLoadFlags(FT_LOAD_NO_BITMAP, FT_LOAD_NO_HINTING));
 
                 if (error != 0)
                 {
@@ -734,12 +732,10 @@ namespace osu.Framework.Text
                 setVariation(face, variation);
 
                 // Prefer colour bitmap strikes (CBDT/CBLC emoji). Fall back to outline rasterization.
-                // ReSharper disable BitwiseOperatorOnEnumWithoutFlags
-                FT_Error error = FT_Load_Glyph(native, glyphIndex, FT_LOAD_COLOR | FT_LOAD_NO_HINTING | FT_LOAD_RENDER);
+                FT_Error error = FT_Load_Glyph(native, glyphIndex, combineLoadFlags(FT_LOAD_COLOR, FT_LOAD_NO_HINTING, FT_LOAD_RENDER));
 
                 if (error != 0)
-                    error = FT_Load_Glyph(native, glyphIndex, FT_LOAD_NO_BITMAP | FT_LOAD_NO_HINTING | FT_LOAD_RENDER);
-                // ReSharper restore BitwiseOperatorOnEnumWithoutFlags
+                    error = FT_Load_Glyph(native, glyphIndex, combineLoadFlags(FT_LOAD_NO_BITMAP, FT_LOAD_NO_HINTING, FT_LOAD_RENDER));
 
                 if (error != 0) throw new FreeTypeException(error);
 
@@ -782,6 +778,16 @@ namespace osu.Framework.Text
             }
 
             return new TextureUpload(image);
+        }
+
+        private static FT_LOAD combineLoadFlags(params FT_LOAD[] flags)
+        {
+            int combined = 0;
+
+            foreach (var flag in flags)
+                combined |= (int)flag;
+
+            return (FT_LOAD)combined;
         }
 
         private unsafe (uint codePoint, uint glyphIndex) getFirstChar()

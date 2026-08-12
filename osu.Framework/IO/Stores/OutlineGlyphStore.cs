@@ -68,7 +68,7 @@ namespace osu.Framework.IO.Stores
         /// <param name="store">The font's resource store.</param>
         /// <param name="assetName">The asset name of the font.</param>
         public OutlineGlyphStore(IResourceStore<byte[]> store, string assetName)
-            : this(new OutlineFont(store, assetName, 0) { Resolution = 100 }, (FontVariation?)null, assetName)
+            : this(new OutlineFont(store, assetName, 0) { Resolution = 100 }, variation: null, nameOverride: assetName)
         {
             selfContained = true;
         }
