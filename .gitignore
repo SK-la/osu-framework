@@ -347,3 +347,8 @@ inspectcode
 osu.Framework.NativeLibs/scripts/ffmpeg/*/
 osu.Framework.NativeLibs/scripts/ffmpeg/*.tar.gz
 
+
+# Portable native toolchains / PlutoSvgFt build deps (local only)
+.tools/
+osu.Framework/Native/PlutoSvgFt/deps/
+osu.Framework/Native/PlutoSvgFt/build/
