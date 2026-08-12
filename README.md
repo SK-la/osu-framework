@@ -179,6 +179,8 @@ Code analysis: `powershell ./InspectCode.ps1` or `./InspectCode.sh`
 
 [MIT](https://opensource.org/licenses/MIT) — see [LICENCE](LICENCE). BASS / BASS ASIO are commercial libraries: free for non-commercial use; obtain a [un4seen licence](http://www.un4seen.com/bass.html#license) for commercial distribution.
 
+Portions of this software are copyright © 2025 The FreeType Project (https://freetype.org). All rights reserved.
+
 Upstream copyright belongs to [ppy Pty Ltd](https://github.com/ppy); Ez-specific changes in this fork are also released under MIT.
 
 <p align="right"><a href="#osuframeworkez2lazer">↑ Top</a> · <a href="#readme-zh">中文 ↑</a></p>
