@@ -34,6 +34,7 @@
     <PackageReference Include="ManagedBass.Asio" Version="4.0.2" />
     <PackageReference Include="ppy.Veldrid" Version="4.9.69-ga405fe8484" />
     <PackageReference Include="ppy.Veldrid.SPIRV" Version="1.0.15-g5911265ec3" />
+    <PackageReference Include="McEndu.FreeTypeSharp" Version="4.1.5" />
     <PackageReference Include="SharpFNT" Version="2.0.0" />
     <!-- Preview version of ImageSharp causes NU5104. -->
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />
@@ -60,4 +61,22 @@
     <PackageReference Include="Markdig" Version="0.23.0" />
     <PackageReference Include="System.Numerics.Tensors" Version="8.0.0" />
   </ItemGroup>
+  <!-- PlutoSVG FreeType OT-SVG hooks (plutosvgft). Packed into ez2lazer.Framework for NuGet consumers.
+       Do NOT set CopyToOutputDirectory here: flowing win/linux .dll/.so into iOS app projects causes mtouch MT158
+       (path truncated at dots in "osu.Framework"). Desktop tests copy natives via an explicit target instead. -->
+  <ItemGroup>
+    <None Include="runtimes\**\native\*">
+      <Pack>true</Pack>
+      <PackagePath>runtimes\%(RecursiveDir)%(Filename)%(Extension)</PackagePath>
+    </None>
+  </ItemGroup>
+  <Target Name="CopyPlutoSvgFtNativesToOutput" AfterTargets="CopyFilesToOutputDirectory">
+    <ItemGroup>
+      <_PlutoSvgFtNative Include="$(MSBuildProjectDirectory)\runtimes\**\native\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_PlutoSvgFtNative)"
+          DestinationFiles="@(_PlutoSvgFtNative->'$(OutputPath)runtimes\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true"
+          Condition="'@(_PlutoSvgFtNative)' != ''" />
+  </Target>
 </Project>

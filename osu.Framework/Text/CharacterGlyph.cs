@@ -16,9 +16,14 @@ namespace osu.Framework.Text
         public int Codepoint { get; }
         public char Character => Codepoint <= char.MaxValue ? (char)Codepoint : '\0';
 
+        /// <summary>
+        /// Whether this glyph already contains colour information and should not be tinted by the parent text colour.
+        /// </summary>
+        public bool HasColour { get; }
+
         private readonly IGlyphStore? containingStore;
 
-        public CharacterGlyph(int codepoint, float xOffset, float yOffset, float xAdvance, float baseline, IGlyphStore? containingStore)
+        public CharacterGlyph(int codepoint, float xOffset, float yOffset, float xAdvance, float baseline, IGlyphStore? containingStore, bool hasColour = false)
         {
             this.containingStore = containingStore;
 
@@ -30,6 +35,7 @@ namespace osu.Framework.Text
             YOffset = yOffset;
             XAdvance = xAdvance;
             Baseline = baseline;
+            HasColour = hasColour;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

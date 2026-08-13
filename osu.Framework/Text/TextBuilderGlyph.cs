@@ -54,6 +54,11 @@ namespace osu.Framework.Text
             }
         }
 
+        /// <summary>
+        /// Whether this glyph already contains colour information and should not be tinted by the parent text colour.
+        /// </summary>
+        public readonly bool HasColour;
+
         public readonly ITexturedCharacterGlyph Glyph;
 
         /// <summary>
@@ -83,6 +88,7 @@ namespace osu.Framework.Text
             this.useFontSizeAsHeight = useFontSizeAsHeight;
 
             Glyph = glyph;
+            HasColour = glyph is TexturedCharacterGlyph textured && textured.HasColour;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

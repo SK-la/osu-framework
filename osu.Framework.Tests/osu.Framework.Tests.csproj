@@ -14,4 +14,14 @@
     <PackageReference Include="NUnit" Version="3.13.3" />
     <PackageReference Include="NUnit3TestAdapter" Version="4.4.2" />
   </ItemGroup>
+  <!-- ProjectReference does not pull Framework AfterTargets copies; place plutosvgft next to the test host. -->
+  <Target Name="CopyPlutoSvgFtNativesForTests" AfterTargets="Build">
+    <ItemGroup>
+      <_PlutoSvgFtNative Include="$(MSBuildThisFileDirectory)..\osu.Framework\runtimes\**\native\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_PlutoSvgFtNative)"
+          DestinationFiles="@(_PlutoSvgFtNative->'$(OutputPath)runtimes\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true"
+          Condition="'@(_PlutoSvgFtNative)' != ''" />
+  </Target>
 </Project>

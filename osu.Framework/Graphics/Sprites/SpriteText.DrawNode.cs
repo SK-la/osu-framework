@@ -62,7 +62,11 @@ namespace osu.Framework.Graphics.Sprites
 
                 for (int i = 0; i < parts.Count; i++)
                 {
-                    if (shadow)
+                    ColourInfo glyphColour = parts[i].HasColour
+                        ? ColourInfo.SingleColour(new Color4(1f, 1f, 1f, ((Color4)DrawColourInfo.Colour.AverageColour).A))
+                        : DrawColourInfo.Colour;
+
+                    if (shadow && !parts[i].HasColour)
                     {
                         var shadowQuad = parts[i].DrawQuad;
 
@@ -75,7 +79,7 @@ namespace osu.Framework.Graphics.Sprites
                             finalShadowColour, inflationPercentage: parts[i].InflationPercentage);
                     }
 
-                    renderer.DrawQuad(parts[i].Texture, parts[i].DrawQuad, DrawColourInfo.Colour, inflationPercentage: parts[i].InflationPercentage);
+                    renderer.DrawQuad(parts[i].Texture, parts[i].DrawQuad, glyphColour, inflationPercentage: parts[i].InflationPercentage);
                 }
 
                 UnbindTextureShader(renderer);
@@ -106,7 +110,8 @@ namespace osu.Framework.Graphics.Sprites
                         InflationPercentage = new Vector2(
                             character.DrawRectangle.Size.X == 0 ? 0 : inflationAmount.X / character.DrawRectangle.Size.X,
                             character.DrawRectangle.Size.Y == 0 ? 0 : inflationAmount.Y / character.DrawRectangle.Size.Y),
-                        Texture = character.Texture
+                        Texture = character.Texture,
+                        HasColour = character.HasColour
                     });
                 }
             }
@@ -131,6 +136,11 @@ namespace osu.Framework.Graphics.Sprites
             /// The texture to draw the character with.
             /// </summary>
             public Texture Texture;
+
+            /// <summary>
+            /// Whether the glyph already contains colour and should not be tinted.
+            /// </summary>
+            public bool HasColour;
         }
     }
 }
