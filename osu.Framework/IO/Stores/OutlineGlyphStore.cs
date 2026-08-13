@@ -115,7 +115,8 @@ namespace osu.Framework.IO.Stores
             }
             catch (Exception e)
             {
-                Logger.Error(e, $"Couldn't load font {FontName} from {Font.AssetPath}.");
+                // Soft-fail for bad/unsupported files (common when enumerating system fonts).
+                Logger.Log($"Couldn't load font {FontName} from {Font.AssetPath}: {e.Message}", level: LogLevel.Verbose);
                 throw;
             }
         }

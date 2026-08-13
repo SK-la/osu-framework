@@ -334,6 +334,11 @@ namespace osu.Framework.Text
             {
                 // Never publish a null face pointer — Dispose would FT_Done_Face(null) and AV.
                 completionSource.TrySetException(ex);
+
+                // Observe the TCS task: callers await this Task.Run, not completionSource.Task.
+                // Leaving the TCS faulted and unobserved triggers UnobservedTaskException.
+                _ = completionSource.Task.Exception;
+
                 throw;
             }
             finally
