@@ -150,6 +150,44 @@ namespace osu.Framework.Text
             }
         }
 
+        /// <summary>
+        /// Returns true if the face contains at least one of the given Unicode codepoints (face is not kept open).
+        /// </summary>
+        public static unsafe bool TryHasAnyCodepoint(string filePath, int faceIndex, ReadOnlySpan<int> codepoints)
+        {
+            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath) || codepoints.Length == 0)
+                return false;
+
+            FT_FaceRec_* face = null;
+            byte[] pathBytes = Encoding.UTF8.GetBytes(filePath + '\0');
+
+            fixed (byte* pathPtr = pathBytes)
+            {
+                lock (library_lock)
+                {
+                    FT_Error error = FT_New_Face(library, pathPtr, new CLong(faceIndex), &face);
+
+                    if (error != FT_Err_Ok || face == null)
+                        return false;
+
+                    try
+                    {
+                        foreach (int cp in codepoints)
+                        {
+                            if (FT_Get_Char_Index(face, new CULong((uint)cp)) != 0)
+                                return true;
+                        }
+
+                        return false;
+                    }
+                    finally
+                    {
+                        FT_Done_Face(face);
+                    }
+                }
+            }
+        }
+
         private static bool isUnusableFamilyName(string? name)
         {
             if (string.IsNullOrWhiteSpace(name))
