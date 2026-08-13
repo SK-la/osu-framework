@@ -120,6 +120,18 @@ namespace osu.Framework.Text
                     return handle;
             }
 
+            // ProjectReference / single-file layouts may leave natives next to the Framework assembly.
+            string? asmDir = Path.GetDirectoryName(assembly.Location);
+
+            if (!string.IsNullOrEmpty(asmDir) && !string.Equals(asmDir, baseDir, StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (string candidate in enumerateNativeCandidates(asmDir))
+                {
+                    if (File.Exists(candidate) && NativeLibrary.TryLoad(candidate, out handle))
+                        return handle;
+                }
+            }
+
             return IntPtr.Zero;
         }
 

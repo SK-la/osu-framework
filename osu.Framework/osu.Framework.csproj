@@ -61,13 +61,22 @@
     <PackageReference Include="Markdig" Version="0.23.0" />
     <PackageReference Include="System.Numerics.Tensors" Version="8.0.0" />
   </ItemGroup>
-  <!-- PlutoSVG FreeType OT-SVG hooks (plutosvgft). Packed into ez2lazer.Framework for NuGet consumers. -->
+  <!-- PlutoSVG FreeType OT-SVG hooks (plutosvgft). Packed into ez2lazer.Framework for NuGet consumers.
+       Do NOT set CopyToOutputDirectory here: flowing win/linux .dll/.so into iOS app projects causes mtouch MT158
+       (path truncated at dots in "osu.Framework"). Desktop tests copy natives via an explicit target instead. -->
   <ItemGroup>
     <None Include="runtimes\**\native\*">
       <Pack>true</Pack>
-      <PackagePath>runtimes</PackagePath>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>runtimes\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <PackagePath>runtimes\%(RecursiveDir)%(Filename)%(Extension)</PackagePath>
     </None>
   </ItemGroup>
+  <Target Name="CopyPlutoSvgFtNativesToOutput" AfterTargets="CopyFilesToOutputDirectory">
+    <ItemGroup>
+      <_PlutoSvgFtNative Include="$(MSBuildProjectDirectory)\runtimes\**\native\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_PlutoSvgFtNative)"
+          DestinationFiles="@(_PlutoSvgFtNative->'$(OutputPath)runtimes\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true"
+          Condition="'@(_PlutoSvgFtNative)' != ''" />
+  </Target>
 </Project>

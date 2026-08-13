@@ -21,6 +21,10 @@ namespace osu.Framework.Tests.Text
         [Test]
         public void TestPlutoSvgHooksRegistered()
         {
+            // Natives are packaged for win-x64 / linux-x64 only (see osu.Framework/runtimes).
+            if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux())
+                Assert.Ignore("plutosvgft is not shipped for this OS yet.");
+
             RuntimeHelpers.RunClassConstructor(typeof(OutlineFont).TypeHandle);
 
             Assert.True(NativePlutoSvgFt.HooksRegistered,
