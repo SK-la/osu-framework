@@ -106,7 +106,8 @@ namespace osu.Framework.Text
         }
 
         /// <summary>
-        /// Read the FreeType family name from a font file without keeping the face open.
+        /// Read a displayable family name from a font file without keeping the face open.
+        /// Prefers SFNT name table (Typographic Family / Font Family) over FreeType's ASCII <c>family_name</c>.
         /// </summary>
         public static unsafe string? TryGetFamilyName(string filePath, int faceIndex = 0)
         {
@@ -127,9 +128,19 @@ namespace osu.Framework.Text
 
                     try
                     {
-                        return face->family_name != null
+                        string? sfnt = tryGetSfntFamilyName(face);
+
+                        if (!isUnusableFamilyName(sfnt))
+                            return sfnt;
+
+                        string? ascii = face->family_name != null
                             ? Marshal.PtrToStringUTF8((nint)face->family_name)
-                            : Path.GetFileNameWithoutExtension(filePath);
+                            : null;
+
+                        if (!isUnusableFamilyName(ascii))
+                            return ascii;
+
+                        return Path.GetFileNameWithoutExtension(filePath);
                     }
                     finally
                     {
@@ -137,6 +148,91 @@ namespace osu.Framework.Text
                     }
                 }
             }
+        }
+
+        private static bool isUnusableFamilyName(string? name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return true;
+
+            foreach (char c in name)
+            {
+                if (c != '?')
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Prefer name id 16 (Typographic Family), then 1 (Font Family), matching current UI language when possible.
+        /// </summary>
+        private static unsafe string? tryGetSfntFamilyName(FT_FaceRec_* face)
+        {
+            ushort preferredLang = (ushort)(System.Globalization.CultureInfo.CurrentUICulture.LCID & 0xffff);
+            const ushort en_us = 0x0409;
+
+            string? bestId16 = null;
+            string? bestId1 = null;
+            int bestId16Score = -1;
+            int bestId1Score = -1;
+
+            var nameEntry = new FT_SfntName_();
+            uint nameCount = FT_Get_Sfnt_Name_Count(face);
+
+            for (uint i = 0; i < nameCount; ++i)
+            {
+                if (FT_Get_Sfnt_Name(face, i, &nameEntry) != 0)
+                    continue;
+
+                if (nameEntry.name_id is not (1 or 16))
+                    continue;
+
+                string? decoded = decodeNameEntry(&nameEntry);
+
+                if (isUnusableFamilyName(decoded))
+                    continue;
+
+                int score = scoreSfntName(nameEntry.platform_id, nameEntry.language_id, preferredLang, en_us);
+
+                if (nameEntry.name_id == 16)
+                {
+                    if (score > bestId16Score)
+                    {
+                        bestId16Score = score;
+                        bestId16 = decoded;
+                    }
+                }
+                else if (score > bestId1Score)
+                {
+                    bestId1Score = score;
+                    bestId1 = decoded;
+                }
+            }
+
+            return bestId16 ?? bestId1;
+        }
+
+        private static int scoreSfntName(ushort platformId, ushort languageId, ushort preferredLang, ushort enUs)
+        {
+            // Higher is better. Prefer Microsoft Unicode platform with matching language.
+            int score = 0;
+
+            if (platformId == TT_PLATFORM_MICROSOFT)
+                score += 100;
+            else if (platformId == TT_PLATFORM_APPLE_UNICODE)
+                score += 50;
+            else
+                return score;
+
+            if (languageId == preferredLang)
+                score += 20;
+            else if (languageId == enUs)
+                score += 10;
+            else if ((languageId & 0xff) == (preferredLang & 0xff))
+                score += 5;
+
+            return score;
         }
 
         /// <summary>
