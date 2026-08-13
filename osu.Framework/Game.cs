@@ -281,6 +281,16 @@ namespace osu.Framework
             => (target ?? Fonts).AddTextureSource(new OutlineGlyphStore(store, assetName));
 
         /// <summary>
+        /// Add an outline font loaded from an absolute filesystem path.
+        /// </summary>
+        /// <param name="filePath">Absolute path to a TrueType/OpenType font file.</param>
+        /// <param name="fontName">Stable font lookup name (family id used in <c>FontUsage</c>).</param>
+        /// <param name="faceIndex">Face index within a <c>.ttc</c> collection.</param>
+        /// <param name="target">An optional target store to add the font to. If not specified, <see cref="Fonts"/> is used.</param>
+        public void AddOutlineFontFromFile(string filePath, string fontName, int faceIndex = 0, FontStore target = null)
+            => (target ?? Fonts).AddTextureSource(new OutlineGlyphStore(filePath, fontName, faceIndex));
+
+        /// <summary>
         /// Add a variable font to be globally accessible to the game.
         /// </summary>
         /// <remarks>

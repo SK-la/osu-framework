@@ -63,6 +63,18 @@ namespace osu.Framework.IO.Stores
         }
 
         /// <summary>
+        /// Load a new font from a filesystem path and create a glyph store for it.
+        /// </summary>
+        /// <param name="filePath">Absolute path to a <c>.ttf</c>/<c>.otf</c>/<c>.ttc</c> file.</param>
+        /// <param name="fontName">Lookup name exposed to <see cref="FontStore"/> (prefer a stable family id without weight suffix).</param>
+        /// <param name="faceIndex">Face index within a font collection.</param>
+        public OutlineGlyphStore(string filePath, string fontName, int faceIndex = 0)
+            : this(new OutlineFont(new FileResourceStore(filePath), "font", faceIndex) { Resolution = 100 }, variation: null, nameOverride: fontName)
+        {
+            selfContained = true;
+        }
+
+        /// <summary>
         /// Load a new font and create a glyph store for it.
         /// </summary>
         /// <param name="store">The font's resource store.</param>

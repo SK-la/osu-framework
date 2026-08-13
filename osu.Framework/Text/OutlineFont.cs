@@ -104,6 +104,40 @@ namespace osu.Framework.Text
         }
 
         /// <summary>
+        /// Read the FreeType family name from a font file without keeping the face open.
+        /// </summary>
+        public static unsafe string? TryGetFamilyName(string filePath, int faceIndex = 0)
+        {
+            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+                return null;
+
+            FT_FaceRec_* face = null;
+            byte[] pathBytes = Encoding.UTF8.GetBytes(filePath + '\0');
+
+            fixed (byte* pathPtr = pathBytes)
+            {
+                lock (library_lock)
+                {
+                    FT_Error error = FT_New_Face(library, pathPtr, new CLong(faceIndex), &face);
+
+                    if (error != FT_Err_Ok || face == null)
+                        return null;
+
+                    try
+                    {
+                        return face->family_name != null
+                            ? Marshal.PtrToStringUTF8((nint)face->family_name)
+                            : Path.GetFileNameWithoutExtension(filePath);
+                    }
+                    finally
+                    {
+                        FT_Done_Face(face);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
         /// Open an outline font.
         /// </summary>
         /// <param name="store">The resource store to use.</param>
