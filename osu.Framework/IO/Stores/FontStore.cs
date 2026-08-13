@@ -130,8 +130,11 @@ namespace osu.Framework.IO.Stores
 
         public override void RemoveTextureStore(IResourceStore<TextureUpload> store)
         {
-            if (store is GlyphStore gs)
+            if (store is IGlyphStore gs)
+            {
                 glyphStores.Remove(gs);
+                EvictGlyphCache(name => name == gs.FontName);
+            }
 
             base.RemoveTextureStore(store);
         }
@@ -142,6 +145,21 @@ namespace osu.Framework.IO.Stores
                 nestedFontStores.Remove(fs);
 
             base.RemoveStore(store);
+        }
+
+        /// <summary>
+        /// Drops cached glyph lookups whose font name matches <paramref name="fontNamePredicate"/>.
+        /// Used when disposing temporary nested stores (e.g. dialog font previews) so stale textures are not reused.
+        /// </summary>
+        public void EvictGlyphCache(Func<string, bool> fontNamePredicate)
+        {
+            ArgumentNullException.ThrowIfNull(fontNamePredicate);
+
+            foreach (var key in namespacedGlyphCache.Keys)
+            {
+                if (fontNamePredicate(key.Item1 ?? string.Empty))
+                    namespacedGlyphCache.TryRemove(key, out _);
+            }
         }
 
         public ITexturedCharacterGlyph Get(string fontName, char character) => Get(fontName, (int)character);
