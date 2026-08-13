@@ -54,6 +54,8 @@ namespace osu.Framework.Text
 
         private readonly TaskCompletionSource<nint> completionSource = new TaskCompletionSource<nint>();
 
+        private int isDisposed;
+
         private readonly Dictionary<string, uint> axes = new Dictionary<string, uint>();
 
         private readonly Dictionary<string, uint> namedInstances = new Dictionary<string, uint>();
@@ -174,16 +176,33 @@ namespace osu.Framework.Text
             GC.SuppressFinalize(this);
         }
 
-        protected virtual unsafe void Dispose(bool isDisposing)
+        protected virtual void Dispose(bool isDisposing)
         {
-            completionSource.Task.WaitSafely();
+            if (Interlocked.Exchange(ref isDisposed, 1) != 0)
+                return;
 
-            if (completionSource.Task.IsCompletedSuccessfully)
+            // Avoid blocking the finalizer thread indefinitely if load never started/finished.
+            if (!completionSource.Task.IsCompleted)
             {
-                lock (library_lock)
-                {
-                    FT_Done_Face(face);
-                }
+                completionSource.TrySetCanceled();
+                return;
+            }
+
+            if (!completionSource.Task.IsCompletedSuccessfully)
+                return;
+
+            nint handle = completionSource.Task.GetResultSafely();
+            doneFace(handle);
+        }
+
+        private static unsafe void doneFace(nint handle)
+        {
+            if (handle == 0)
+                return;
+
+            lock (library_lock)
+            {
+                FT_Done_Face((FT_FaceRec_*)handle);
             }
         }
 
@@ -205,11 +224,20 @@ namespace osu.Framework.Text
             {
                 // check again to prevent race conditions
                 if (!completionSource.Task.IsCompleted)
-                    completionSource.SetResult(loadFont());
+                {
+                    nint loaded = loadFont();
+
+                    if (!completionSource.TrySetResult(loaded) && loaded != 0)
+                    {
+                        // Disposed/canceled while loading — free the face ourselves.
+                        doneFace(loaded);
+                    }
+                }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                completionSource.SetResult(0);
+                // Never publish a null face pointer — Dispose would FT_Done_Face(null) and AV.
+                completionSource.TrySetException(ex);
                 throw;
             }
             finally

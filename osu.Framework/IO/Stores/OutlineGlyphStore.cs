@@ -31,6 +31,7 @@ namespace osu.Framework.IO.Stores
         public float? Baseline => Font.Baseline;
 
         private readonly bool selfContained;
+        private int isDisposed;
 
         /// <summary>
         /// Create a glyph store for a font using the specified OpenType named instance.
@@ -98,6 +99,9 @@ namespace osu.Framework.IO.Stores
 
         protected virtual void Dispose(bool isDisposing)
         {
+            if (Interlocked.Exchange(ref isDisposed, 1) != 0)
+                return;
+
             if (selfContained)
                 Font.Dispose();
         }
