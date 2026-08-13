@@ -2,6 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -22,6 +23,7 @@ namespace osu.Framework.Text
 
         private static readonly object resolver_lock = new object();
         private static bool resolverRegistered;
+        private static bool freetypePreloaded;
 
         /// <summary>
         /// Whether SVG hooks were successfully registered on the shared FreeType library.
@@ -106,6 +108,10 @@ namespace osu.Framework.Text
                 return IntPtr.Zero;
             }
 
+            // plutosvgft.dll imports freetype.dll by bare name; Windows only searches the loaded
+            // DLL's directory / PATH — not .NET's RID folder — unless freetype is already mapped.
+            preloadFreetype(assembly);
+
             if (NativeLibrary.TryLoad(library_name, assembly, searchPath, out IntPtr handle))
                 return handle;
 
@@ -114,7 +120,7 @@ namespace osu.Framework.Text
 
             string baseDir = AppContext.BaseDirectory;
 
-            foreach (string candidate in enumerateNativeCandidates(baseDir))
+            foreach (string candidate in enumeratePlutoSvgCandidates(baseDir))
             {
                 if (File.Exists(candidate) && NativeLibrary.TryLoad(candidate, out handle))
                     return handle;
@@ -125,7 +131,7 @@ namespace osu.Framework.Text
 
             if (!string.IsNullOrEmpty(asmDir) && !string.Equals(asmDir, baseDir, StringComparison.OrdinalIgnoreCase))
             {
-                foreach (string candidate in enumerateNativeCandidates(asmDir))
+                foreach (string candidate in enumeratePlutoSvgCandidates(asmDir))
                 {
                     if (File.Exists(candidate) && NativeLibrary.TryLoad(candidate, out handle))
                         return handle;
@@ -135,7 +141,67 @@ namespace osu.Framework.Text
             return IntPtr.Zero;
         }
 
-        private static System.Collections.Generic.IEnumerable<string> enumerateNativeCandidates(string baseDir)
+        private static void preloadFreetype(Assembly assembly)
+        {
+            if (freetypePreloaded)
+                return;
+
+            foreach (string candidate in enumerateFreetypeCandidates(AppContext.BaseDirectory))
+            {
+                if (File.Exists(candidate) && NativeLibrary.TryLoad(candidate, out _))
+                {
+                    freetypePreloaded = true;
+                    return;
+                }
+            }
+
+            string? asmDir = Path.GetDirectoryName(assembly.Location);
+
+            if (!string.IsNullOrEmpty(asmDir))
+            {
+                foreach (string candidate in enumerateFreetypeCandidates(asmDir))
+                {
+                    if (File.Exists(candidate) && NativeLibrary.TryLoad(candidate, out _))
+                    {
+                        freetypePreloaded = true;
+                        return;
+                    }
+                }
+            }
+
+            // Last resort: already loaded by FreeTypeSharp under another search path.
+            if (NativeLibrary.TryLoad("freetype", assembly, null, out _)
+                || NativeLibrary.TryLoad("libfreetype", assembly, null, out _))
+            {
+                freetypePreloaded = true;
+            }
+        }
+
+        private static IEnumerable<string> enumerateFreetypeCandidates(string baseDir)
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                yield return Path.Combine(baseDir, "freetype.dll");
+                yield return Path.Combine(baseDir, "runtimes", "win-x64", "native", "freetype.dll");
+                yield return Path.Combine(baseDir, "runtimes", "win-arm64", "native", "freetype.dll");
+                yield return Path.Combine(baseDir, "runtimes", "win-x86", "native", "freetype.dll");
+            }
+            else if (OperatingSystem.IsLinux())
+            {
+                yield return Path.Combine(baseDir, "libfreetype.so");
+                yield return Path.Combine(baseDir, "runtimes", "linux-x64", "native", "libfreetype.so");
+                yield return Path.Combine(baseDir, "runtimes", "linux-arm64", "native", "libfreetype.so");
+            }
+            else if (OperatingSystem.IsMacOS())
+            {
+                yield return Path.Combine(baseDir, "libfreetype.dylib");
+                yield return Path.Combine(baseDir, "runtimes", "osx", "native", "libfreetype.dylib");
+                yield return Path.Combine(baseDir, "runtimes", "osx-x64", "native", "libfreetype.dylib");
+                yield return Path.Combine(baseDir, "runtimes", "osx-arm64", "native", "libfreetype.dylib");
+            }
+        }
+
+        private static IEnumerable<string> enumeratePlutoSvgCandidates(string baseDir)
         {
             // Published RID layouts place natives next to the app; test/dev layouts keep runtimes/<rid>/native.
             if (OperatingSystem.IsWindows())
