@@ -2,9 +2,9 @@
   <PropertyGroup>
     <PackageType>Template</PackageType>
     <PackageId>ppy.osu.Framework.Templates</PackageId>
-    <Title>osu! framework templates</Title>
-    <Description>Templates that can be used as starting points for new games, built with of osu! framework.</Description>
-    <PackageTags>dotnet-new;templates;osu;framework</PackageTags>
+    <Title>Ez2Lazer Framework templates</Title>
+    <Description>Templates that can be used as starting points for new games, built with Ez2Lazer Framework.</Description>
+    <PackageTags>dotnet-new;templates;ez2lazer;framework</PackageTags>
     <TargetFramework>net8.0</TargetFramework>
     <IncludeContentInPack>true</IncludeContentInPack>
     <IncludeBuildOutput>false</IncludeBuildOutput>

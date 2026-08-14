@@ -2,7 +2,7 @@
   <img width="500px" src="assets/o!f Logo Large FC.svg">
 </p>
 
-# osu!framework（Ez2Lazer）
+# Ez2Lazer Framework
 
 <p align="center">
   <a href="#readme-zh"><img src="https://img.shields.io/badge/语言-中文-1f6feb?style=for-the-badge" alt="中文"></a>
@@ -110,7 +110,7 @@ git clone https://github.com/SK-la/osu-framework
 
 上游版权归 [ppy Pty Ltd](https://github.com/ppy)；本 fork 的 Ez 专用改动同样以 MIT 发布。
 
-<p align="right"><a href="#osuframeworkez2lazer">↑ 回顶</a> · <a href="#readme-en">English ↓</a></p>
+<p align="right"><a href="#ez2lazer-framework">↑ 回顶</a> · <a href="#readme-en">English ↓</a></p>
 
 </details>
 
@@ -208,6 +208,6 @@ Portions of this software are copyright © 2025 The FreeType Project (https://fr
 
 Upstream copyright belongs to [ppy Pty Ltd](https://github.com/ppy); Ez-specific changes in this fork are also released under MIT.
 
-<p align="right"><a href="#osuframeworkez2lazer">↑ Top</a> · <a href="#readme-zh">中文 ↑</a></p>
+<p align="right"><a href="#ez2lazer-framework">↑ Top</a> · <a href="#readme-zh">中文 ↑</a></p>
 
 </details>

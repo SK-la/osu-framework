@@ -4,15 +4,15 @@
     <SupportedOSPlatformVersion>13.4</SupportedOSPlatformVersion>
     <OutputType>Library</OutputType>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <AssemblyTitle>osu!framework iOS</AssemblyTitle>
+    <AssemblyTitle>Ez2Lazer Framework iOS</AssemblyTitle>
     <AssemblyName>osu.Framework.iOS</AssemblyName>
     <RootNamespace>osu.Framework.iOS</RootNamespace>
     <Description>A 2D application/game framework written with rhythm games in mind.</Description>
   </PropertyGroup>
   <PropertyGroup Label="Nuget">
-    <Title>osu!framework iOS</Title>
+    <Title>Ez2Lazer Framework iOS</Title>
     <PackageId>ppy.osu.Framework.iOS</PackageId>
-    <PackageTags>osu game framework</PackageTags>
+    <PackageTags>ez2lazer framework</PackageTags>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\osu.Framework\osu.Framework.csproj" />

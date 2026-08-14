@@ -348,7 +348,7 @@ namespace osu.Framework.Platform
 
             if (string.IsNullOrEmpty(Options.FriendlyGameName))
             {
-                Options.FriendlyGameName = $@"osu!framework (running ""{gameName}"")";
+                Options.FriendlyGameName = $@"Ez2Lazer Framework (running ""{gameName}"")";
             }
 
             Name = gameName;

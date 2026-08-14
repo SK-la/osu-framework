@@ -44,7 +44,7 @@
   </PropertyGroup>
   <PropertyGroup Label="NuGet">
     <Authors>SK-la</Authors>
-    <Copyright>Copyright (c) 2024 SK-la</Copyright>
+    <Copyright>Copyright (c) 2024 ppy Pty Ltd. Ez2Lazer modifications by SK-la.</Copyright>
     <Product>Ez2Lazer Framework</Product>
     <Description>Fork of osu!framework, adapted for Ez2Lazer with custom enhancements.</Description>
     <PackageReleaseNotes>Automated release.</PackageReleaseNotes>
@@ -52,6 +52,6 @@
     <PackageIcon>icon.png</PackageIcon>
     <PackageProjectUrl>https://github.com/SK-la/osu-framework</PackageProjectUrl>
     <RepositoryUrl>https://github.com/SK-la/osu-framework</RepositoryUrl>
-    <Tags>osu framework fork ez2lazer</Tags>
+    <Tags>ez2lazer framework fork</Tags>
   </PropertyGroup>
 </Project>

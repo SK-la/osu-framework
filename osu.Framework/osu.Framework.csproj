@@ -3,9 +3,9 @@
     <TargetFramework>net8.0</TargetFramework>
     <OutputType>Library</OutputType>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <AssemblyTitle>osu!framework</AssemblyTitle>
+    <AssemblyTitle>Ez2Lazer Framework</AssemblyTitle>
     <AssemblyName>osu.Framework</AssemblyName>
-    <Description>A 2D application/game framework written with rhythm games in mind.</Description>
+    <Description>Ez2Lazer fork of osu!framework, a 2D application/game framework written with rhythm games in mind.</Description>
     <!-- Enabling this breaks iOS projects from building due to silly naming conflicts (https://github.com/dotnet/runtime/issues/79500#issuecomment-1345624309).
          It's still enabled externally on packaging scripts so should be fine to disable in project. -->
     <!--<GenerateDocumentationFile>true</GenerateDocumentationFile>-->
@@ -13,10 +13,10 @@
     <DefineConstants>$(DefineConstants);JETBRAINS_ANNOTATIONS</DefineConstants>
   </PropertyGroup>
   <PropertyGroup Label="Nuget">
-    <Title>osu!framework</Title>
+    <Title>Ez2Lazer Framework</Title>
     <PackageId>ez2lazer.Framework</PackageId>
     <PackageReleaseNotes>Automated release.</PackageReleaseNotes>
-    <PackageTags>osu game framework</PackageTags>
+    <PackageTags>ez2lazer framework</PackageTags>
   </PropertyGroup>
   <ItemGroup Label="Package References">
   <PackageReference Include="NAudio" Version="2.3.0" />

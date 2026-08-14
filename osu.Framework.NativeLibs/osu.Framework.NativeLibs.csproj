@@ -2,15 +2,15 @@
   <PropertyGroup Label="Project">
     <TargetFramework>net8.0</TargetFramework>
     <OutputType>Library</OutputType>
-    <AssemblyTitle>osu!framework Libraries</AssemblyTitle>
+    <AssemblyTitle>Ez2Lazer Framework Libraries</AssemblyTitle>
     <AssemblyName>osu.Framework.NativeLibs</AssemblyName>
   </PropertyGroup>
   <PropertyGroup Label="Nuget">
     <IsPackable>true</IsPackable>
-    <Title>osu!framework Libraries</Title>
-    <Description>Native libraries for osu!framework</Description>
+    <Title>Ez2Lazer Framework Libraries</Title>
+    <Description>Native libraries for Ez2Lazer Framework</Description>
     <PackageId>ppy.osu.Framework.NativeLibs</PackageId>
-    <PackageTags>osu game framework libraries</PackageTags>
+    <PackageTags>ez2lazer framework libraries</PackageTags>
     <IncludeBuildOutput>false</IncludeBuildOutput>
   </PropertyGroup>
   <ItemGroup>
