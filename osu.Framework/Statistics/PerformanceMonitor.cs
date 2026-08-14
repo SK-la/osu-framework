@@ -72,14 +72,9 @@ namespace osu.Framework.Statistics
         }
 
         /// <summary>
-        /// <see cref="collectionRequested"/> as sampled for the current frame. Only touched by our own thread.
-        /// </summary>
-        private bool collecting;
-
-        /// <summary>
         /// [Ez] Whether collection is actually running as of the current frame.
         /// </summary>
-        internal bool Collecting => collecting;
+        internal bool Collecting { get; private set; }
 
         private double consumptionTime;
         private double consumptionGCTotalPauseDuration;
@@ -140,7 +135,7 @@ namespace osu.Framework.Statistics
         public InvokeOnDisposal BeginCollecting(PerformanceCollectionType type)
         {
             // callers all either `using` the result or null-check it, so handing back nothing is safe.
-            if (!collecting)
+            if (!Collecting)
                 return null;
 
             // Consume time, regardless of whether we are using it at this point.
@@ -195,10 +190,10 @@ namespace osu.Framework.Statistics
         /// </summary>
         public void NewFrame()
         {
-            bool wasCollecting = collecting;
-            collecting = collectionRequested;
+            bool wasCollecting = Collecting;
+            Collecting = collectionRequested;
 
-            if (!collecting)
+            if (!Collecting)
             {
                 // a Begin/End pair can straddle the frame boundary (see GameHost.windowUpdate), so an entry from
                 // the frame we stopped on may still be on the stack.
@@ -286,7 +281,7 @@ namespace osu.Framework.Statistics
 
         public void EndFrame()
         {
-            if (!collecting)
+            if (!Collecting)
                 return;
 
             traceCollector?.EndFrame();
