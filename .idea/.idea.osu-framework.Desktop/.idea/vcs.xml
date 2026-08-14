@@ -2,5 +2,7 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/osu.Framework/Native/PlutoSvgFt/deps/plutosvg" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/osu.Framework/Native/PlutoSvgFt/deps/plutosvg/plutovg" vcs="Git" />
   </component>
 </project>
