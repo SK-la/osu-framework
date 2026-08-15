@@ -28,6 +28,7 @@ namespace osu.Framework.Audio
         }
 
         private float[]? frequencyData;
+        private float[]? waveformData;
 
         private readonly float[] channelLevels = new float[2];
 
@@ -57,7 +58,12 @@ namespace osu.Framework.Audio
             {
                 frequencyData ??= new float[ChannelAmplitudes.AMPLITUDES_SIZE];
                 channel.Mixer.ChannelGetData(channel, frequencyData, (int)DataFlags.FFT512);
-                CurrentAmplitudes = new ChannelAmplitudes(leftChannel, rightChannel, frequencyData);
+
+                waveformData ??= new float[ChannelAmplitudes.WAVEFORM_SIZE];
+                Array.Clear(waveformData, 0, waveformData.Length);
+                channel.Mixer.ChannelGetData(channel, waveformData, waveformData.Length * sizeof(float) | (int)DataFlags.Float);
+
+                CurrentAmplitudes = new ChannelAmplitudes(leftChannel, rightChannel, frequencyData, waveformData);
             }
             else
                 CurrentAmplitudes = ChannelAmplitudes.Empty;

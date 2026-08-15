@@ -18,6 +18,11 @@ namespace osu.Framework.Audio.Track
         public const int AMPLITUDES_SIZE = 256;
 
         /// <summary>
+        /// The length of the <see cref="WaveformSamples"/> data.
+        /// </summary>
+        public const int WAVEFORM_SIZE = 256;
+
+        /// <summary>
         /// The amplitude of the left channel (0..1).
         /// </summary>
         public readonly float LeftChannel;
@@ -42,13 +47,20 @@ namespace osu.Framework.Audio.Track
         /// </summary>
         public readonly ReadOnlyMemory<float> FrequencyAmplitudes;
 
-        private static readonly float[] empty_array = new float[AMPLITUDES_SIZE];
+        /// <summary>
+        /// Recent time-domain PCM samples in -1..1, used by circular waveform visualisers.
+        /// </summary>
+        public readonly ReadOnlyMemory<float> WaveformSamples;
 
-        public ChannelAmplitudes(float leftChannel = 0, float rightChannel = 0, float[] amplitudes = null)
+        private static readonly float[] empty_array = new float[AMPLITUDES_SIZE];
+        private static readonly float[] empty_waveform = new float[WAVEFORM_SIZE];
+
+        public ChannelAmplitudes(float leftChannel = 0, float rightChannel = 0, float[] amplitudes = null, float[] waveform = null)
         {
             LeftChannel = leftChannel;
             RightChannel = rightChannel;
             FrequencyAmplitudes = amplitudes ?? empty_array;
+            WaveformSamples = waveform ?? empty_waveform;
         }
 
         public static ChannelAmplitudes Empty { get; } = new ChannelAmplitudes(0);
