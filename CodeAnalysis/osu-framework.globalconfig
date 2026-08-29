@@ -32,6 +32,10 @@ dotnet_diagnostic.IDE0040.severity = warning
 # IDE0055: Fix formatting
 dotnet_diagnostic.IDE0055.severity = warning
 
+# IDE0032: Use auto property
+# LangVersion 14 / .NET 10 analyzers report many false positives for custom property logic.
+dotnet_diagnostic.IDE0032.severity = silent
+
 # IDE0051: Private method is unused
 dotnet_diagnostic.IDE0051.severity = silent
 
