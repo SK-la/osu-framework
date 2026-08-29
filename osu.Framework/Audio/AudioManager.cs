@@ -844,7 +844,8 @@ namespace osu.Framework.Audio
                     Logger.Log($"ASIO device '{deviceName}' not found.", name: "audio", level: LogLevel.Error);
                 }
 
-                goto explicit_selection_failed;
+                handleExplicitSelectionFailed();
+                return;
             }
             else
             {
@@ -868,7 +869,8 @@ namespace osu.Framework.Audio
                 if (isExplicitSelection)
                 {
                     Logger.Log($"Explicitly selected audio device '{AudioDevice.Value}' failed to initialise in mode {mode}.", name: "audio", level: LogLevel.Important);
-                    goto explicit_selection_failed;
+                    handleExplicitSelectionFailed();
+                    return;
                 }
             }
 
@@ -883,18 +885,18 @@ namespace osu.Framework.Audio
             // we're boned. even "No sound" device won't initialise.
             return;
 
-        explicit_selection_failed:
-            // Headless tests explicitly select "No sound", which is a BASS internal device.
-            if (DebugUtils.IsNUnitRunning && trySetDevice(Bass.NoSoundDevice, AudioOutputMode.Default))
-                return;
+            void handleExplicitSelectionFailed()
+            {
+                // Headless tests explicitly select "No sound", which is a BASS internal device.
+                if (DebugUtils.IsNUnitRunning && trySetDevice(Bass.NoSoundDevice, AudioOutputMode.Default))
+                    return;
 
-            Logger.Log($"Keeping explicit audio selection '{AudioDevice.Value}' after initialisation failure; skipping silent fallback to default device.", name: "audio", level: LogLevel.Important);
-            Logger.Log($"Audio output remains uninitialised after explicit device selection failure: '{AudioDevice.Value}'.", name: "audio", level: LogLevel.Important);
+                Logger.Log($"Keeping explicit audio selection '{AudioDevice.Value}' after initialisation failure; skipping silent fallback to default device.", name: "audio", level: LogLevel.Important);
+                Logger.Log($"Audio output remains uninitialised after explicit device selection failure: '{AudioDevice.Value}'.", name: "audio", level: LogLevel.Important);
 
-            if (parseSelection(AudioDevice.Value).mode == AudioOutputMode.Asio)
-                notifyAsioOutputUnavailable();
-
-            return;
+                if (parseSelection(AudioDevice.Value).mode == AudioOutputMode.Asio)
+                    notifyAsioOutputUnavailable();
+            }
 
             bool trySetDevice(int deviceId, AudioOutputMode outputMode)
             {
