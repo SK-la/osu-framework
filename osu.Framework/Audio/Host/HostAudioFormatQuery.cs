@@ -21,7 +21,7 @@ namespace osu.Framework.Audio.Host
         {
             switch (RuntimeInfo.OS)
             {
-                case RuntimeInfo.Platform.Windows:
+                case RuntimeInfo.Platform.Windows when OperatingSystem.IsWindows():
                     return WindowsAudioFormatQuery.GetReportedPlaybackFormats(bassDriverId);
 
                 case RuntimeInfo.Platform.macOS:
@@ -44,7 +44,7 @@ namespace osu.Framework.Audio.Host
 
             switch (RuntimeInfo.OS)
             {
-                case RuntimeInfo.Platform.Windows:
+                case RuntimeInfo.Platform.Windows when OperatingSystem.IsWindows():
                     return WindowsAudioFormatQuery.GetReportedFormatsForAsioDevice(logicalDeviceName, bassPlaybackDeviceNames);
 
                 case RuntimeInfo.Platform.macOS:
@@ -66,7 +66,7 @@ namespace osu.Framework.Audio.Host
         {
             switch (RuntimeInfo.OS)
             {
-                case RuntimeInfo.Platform.Windows:
+                case RuntimeInfo.Platform.Windows when OperatingSystem.IsWindows():
                     var waveFormat = WindowsAudioFormatQuery.TryGetDefaultPlaybackMixFormat();
                     return waveFormat == null ? null : (waveFormat.SampleRate, NormaliseBits(waveFormat.BitsPerSample));
 
@@ -88,7 +88,7 @@ namespace osu.Framework.Audio.Host
         {
             switch (RuntimeInfo.OS)
             {
-                case RuntimeInfo.Platform.Windows:
+                case RuntimeInfo.Platform.Windows when OperatingSystem.IsWindows():
                     var waveFormat = WindowsAudioFormatQuery.TryGetMixFormatForDriver(bassDriverId ?? string.Empty);
                     return waveFormat == null ? null : (waveFormat.SampleRate, waveFormat.Channels);
 

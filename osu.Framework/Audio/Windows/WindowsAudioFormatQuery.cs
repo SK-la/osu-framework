@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using osu.Framework.Audio.Asio;
@@ -16,6 +17,7 @@ namespace osu.Framework.Audio.Windows
     /// Read-only Windows Core Audio queries for device-reported formats (mix format, device format property).
     /// Does not probe candidate sample rates; mirrors what the OS exposes for the endpoint.
     /// </summary>
+    [SupportedOSPlatform("windows")]
     public static class WindowsAudioFormatQuery
     {
         public static string? TryGetFriendlyPlaybackName(string bassDriverId)
@@ -44,7 +46,18 @@ namespace osu.Framework.Audio.Windows
         public static WaveFormat? TryGetMixFormatForDriver(string bassDriverId)
         {
             var device = tryGetPlaybackDevice(bassDriverId);
-            return device?.AudioClient.MixFormat;
+
+            if (device == null)
+                return null;
+
+            try
+            {
+                return tryGetMixFormat(device);
+            }
+            finally
+            {
+                device.Dispose();
+            }
         }
 
         /// <summary>
@@ -64,7 +77,7 @@ namespace osu.Framework.Audio.Windows
 
             try
             {
-                addWaveFormat(results, device.AudioClient.MixFormat);
+                addWaveFormat(results, tryGetMixFormat(device));
             }
             catch (Exception ex)
             {
@@ -116,7 +129,7 @@ namespace osu.Framework.Audio.Windows
             {
                 using var enumerator = new MMDeviceEnumerator();
                 using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
-                return device.AudioClient.MixFormat;
+                return tryGetMixFormat(device);
             }
             catch (Exception ex)
             {
@@ -174,6 +187,12 @@ namespace osu.Framework.Audio.Windows
             }
 
             return null;
+        }
+
+        private static WaveFormat? tryGetMixFormat(MMDevice device)
+        {
+            using var audioClient = device.CreateAudioClient();
+            return audioClient.MixFormat;
         }
 
         private static void addWaveFormat(List<EzAsioFormatOption> results, WaveFormat? format)

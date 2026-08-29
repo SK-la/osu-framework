@@ -545,7 +545,7 @@ namespace osu.Framework.Audio
             thread = audioThread;
 
             // Initialise optional WASAPI backend on Windows (prototype).
-            if (RuntimeInfo.OS == RuntimeInfo.Platform.Windows)
+            if (OperatingSystem.IsWindows())
             {
                 try
                 {
