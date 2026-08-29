@@ -251,8 +251,7 @@ paket-files/
 __pycache__/
 *.pyc
 
-# Cake #
-/tools/**
+# Cake build artifacts (repo tools/ includes iOS AssemblyStripper)
 /build/tools/**
 /build/temp/**
 

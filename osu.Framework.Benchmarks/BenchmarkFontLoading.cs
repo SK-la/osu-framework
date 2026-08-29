@@ -112,7 +112,7 @@ namespace osu.Framework.Benchmarks
 
                     var icon = (IconUsage)propValue;
                     using (var upload = (store as IResourceStore<TextureUpload>)!.Get(icon.Icon.ToString()))
-                        Trace.Assert(upload.Data != null);
+                        Trace.Assert(upload.Data.Length > 0);
 
                     if (remainingCount-- == 0)
                         return;
