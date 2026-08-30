@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Threading;
 using FreeTypeSharp;
 using osu.Framework.Logging;
 using static FreeTypeSharp.FT;
@@ -21,7 +22,7 @@ namespace osu.Framework.Text
     {
         private const string library_name = "plutosvgft";
 
-        private static readonly object resolver_lock = new object();
+        private static readonly Lock resolver_lock = new Lock();
         private static bool resolverRegistered;
         private static bool freetypePreloaded;
 

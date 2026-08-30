@@ -29,7 +29,7 @@ namespace osu.Framework.Audio.Asio
         private const double sample_rate_tolerance = 1.0;
         private static readonly AsioProcedure asio_callback = asioProcedure;
 
-        private static readonly object sync_root = new object();
+        private static readonly Lock sync_root = new Lock();
 
         private static readonly Dictionary<int, CachedDeviceCapabilities> capabilities_cache = new Dictionary<int, CachedDeviceCapabilities>();
 

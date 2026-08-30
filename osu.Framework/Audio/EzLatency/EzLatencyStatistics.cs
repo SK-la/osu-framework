@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 
 namespace osu.Framework.Audio.EzLatency
 {
@@ -24,7 +25,7 @@ namespace osu.Framework.Audio.EzLatency
     internal class EzLatencyCollector
     {
         private readonly List<EzLatencyRecord> records = new List<EzLatencyRecord>();
-        private readonly object lockObject = new object();
+        private readonly Lock lockObject = new Lock();
 
         public void AddRecord(EzLatencyRecord record)
         {
